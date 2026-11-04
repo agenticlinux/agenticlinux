@@ -21,7 +21,7 @@ toolset.
 
 AgenticLinux is a [bootc](https://bootc-dev.github.io/bootc/) image: the whole
 OS ships as a container, so updates are atomic and rollback is one command.
-It is built from Fedora 44 packages on the
+It is built from Fedora 45 (or Fedora 44) packages on the
 [fedora-ostree-desktops](https://quay.io/organization/fedora-ostree-desktops)
 images, or from CentOS Stream 10 packages (with EPEL) on the
 [centos-bootc](https://quay.io/repository/centos-bootc/centos-bootc) image,
@@ -52,18 +52,33 @@ and available for x86_64 and aarch64.
    llmman launch opencode --provider openrouter --model qwen/qwen3-coder
    ```
 
-| Variant      | Built from       | Desktop    | Image                                               |
-|--------------|------------------|------------|-----------------------------------------------------|
-| kde          | Fedora 44        | KDE Plasma | `docker.io/ericcurtin044/agenticlinux:kde`          |
-| gnome        | Fedora 44        | GNOME      | `docker.io/ericcurtin044/agenticlinux:gnome`        |
-| sway         | Fedora 44        | Sway       | `docker.io/ericcurtin044/agenticlinux:sway`         |
-| cosmic       | Fedora 44        | COSMIC     | `docker.io/ericcurtin044/agenticlinux:cosmic`       |
-| xfce         | Fedora 44        | Xfce       | `docker.io/ericcurtin044/agenticlinux:xfce`         |
-| budgie       | Fedora 44        | Budgie     | `docker.io/ericcurtin044/agenticlinux:budgie`       |
-| base         | Fedora 44        | none       | `docker.io/ericcurtin044/agenticlinux:base`         |
-| centos-kde   | CentOS Stream 10 | KDE Plasma | `docker.io/ericcurtin044/agenticlinux:centos-kde`   |
-| centos-gnome | CentOS Stream 10 | GNOME      | `docker.io/ericcurtin044/agenticlinux:centos-gnome` |
-| centos-base  | CentOS Stream 10 | none       | `docker.io/ericcurtin044/agenticlinux:centos-base`  |
+Each variant is an image tag, `docker.io/ericcurtin044/agenticlinux:<tag>`. The
+plain desktop name is the default and is Fedora 45. The `fedora45-` and
+`fedora44-` tags name the release explicitly: a `fedora44-` tag stays on
+Fedora 44 whatever the default becomes. To stay on Fedora 44, switch to its
+variant:
+
+```sh
+sudo bootc switch docker.io/ericcurtin044/agenticlinux:fedora44-kde
+```
+
+| Desktop    | Fedora 45 (the default)     | Fedora 44         |
+|------------|-----------------------------|-------------------|
+| KDE Plasma | `kde`, `fedora45-kde`       | `fedora44-kde`    |
+| GNOME      | `gnome`, `fedora45-gnome`   | `fedora44-gnome`  |
+| Sway       | `sway`, `fedora45-sway`     | `fedora44-sway`   |
+| COSMIC     | `cosmic`, `fedora45-cosmic` | `fedora44-cosmic` |
+| Xfce       | `xfce`, `fedora45-xfce`     | `fedora44-xfce`   |
+| Budgie     | `budgie`, `fedora45-budgie` | `fedora44-budgie` |
+| no desktop | `base`, `fedora45-base`     | `fedora44-base`   |
+
+CentOS Stream 10, with EPEL, has two desktops and a base image:
+
+| Desktop    | CentOS Stream 10 |
+|------------|------------------|
+| KDE Plasma | `centos-kde`     |
+| GNOME      | `centos-gnome`   |
+| no desktop | `centos-base`    |
 
 The variants carry the same packages on both distributions, so the list is
 what CentOS Stream 10, EPEL 10 and RPM Fusion have: GNOME and KDE Plasma are
@@ -137,6 +152,10 @@ Or switch an existing bootc system:
 sudo bootc switch docker.io/ericcurtin044/agenticlinux:kde
 ```
 
+The ISOs are named for the variant (`agenticlinux-kde-x86_64.iso`), and the
+default desktops' are Fedora 45. The Fedora 44 ones are
+`agenticlinux-fedora44-kde-x86_64.iso` and so on.
+
 The root filesystem (which holds `/var`, `/home` and `/root`) defaults to xfs
 for both `bootc install` and the ISO.
 
@@ -167,16 +186,21 @@ sudo bootc rollback         # boot the previous image next time; again to undo
 `/var` is shared by both images, so a rollback does not undo changes to your
 data.
 
+The default tags (`kde`, `gnome`, ...) moved from Fedora 44 to Fedora 45, so a
+machine that followed one is taken to Fedora 45 by its next `bootc upgrade`.
+To stay on Fedora 44, switch to its `fedora44-` tag first.
+
 A failed update rolls back by itself. The new image gets three boot attempts,
 and if it does not come up healthy the machine returns to the previous image and
 does not retry the bad one; see [bootguard](bootguard/README.md).
 
 Every build is also tagged `<variant>-<version>`, the name of a
-[release](https://github.com/ericcurtin/agenticlinux/releases). Switch to one
-to pin it, and back to the variant's tag to follow the newest:
+[release](https://github.com/ericcurtin/agenticlinux/releases). The version is
+the build's, `<default Fedora release>.<date>.<run>`, for the Fedora 44 variants
+too. Switch to one to pin it, and back to the variant's tag to follow the newest:
 
 ```sh
-sudo bootc switch docker.io/ericcurtin044/agenticlinux:kde-44.YYYYMMDD.N
+sudo bootc switch docker.io/ericcurtin044/agenticlinux:kde-45.YYYYMMDD.N
 ```
 
 Nothing updates on its own by default. bootc's timer checks an hour after boot
@@ -208,7 +232,7 @@ sudo systemctl enable --now bootc-fetch-apply-updates.timer
 
 [packages.txt](packages.txt) lists the RPMs, [build.sh](build.sh) does the
 rest, and `usr/` is copied over the image. Each variant's base image is at the
-top of the [Dockerfile](Dockerfile); `VARIANT` must match its distribution. The
+top of the [Dockerfile](Dockerfile); `VARIANT` must match its distribution and, for Fedora, its release. The
 published image is the `chunked` target, an OCI layout that Docker only loads
 with the containerd image store. Enable it in `/etc/docker/daemon.json`:
 
@@ -220,9 +244,9 @@ Then:
 
 ```sh
 docker build --target chunked \
-  --build-arg BASE=quay.io/fedora-ostree-desktops/kinoite:44 --build-arg VARIANT=kde \
+  --build-arg BASE=quay.io/fedora-ostree-desktops/kinoite:45 --build-arg VARIANT=fedora45-kde \
   -o type=tar,dest=image.tar .
-docker load -i image.tar   # loads it as agenticlinux:kde
+docker load -i image.tar   # loads it as agenticlinux:fedora45-kde
 ```
 
 The smoke test runs in a container of the image; it pulls a small local model

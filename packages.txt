@@ -51,6 +51,7 @@ whois
 socat
 plocate
 btop
+nvtop
 vim-enhanced  # the full vim (the vim command), not vim-minimal's vi
 tldr
 
