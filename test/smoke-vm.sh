@@ -53,6 +53,22 @@ retry() {
   return "$status"
 }
 
+# The same for a registry request, with a pause between the tries that starts
+# at a second and doubles (1, 2, 4 ... 64 s): Docker Hub's token endpoint has
+# failed one pull ("failed to fetch anonymous token", hello-world, centos-base)
+# and answered again moments later.
+patiently() {
+  local i delay=1
+  for i in $(seq 8); do
+    "$@" && return 0
+    [ "$i" -lt 8 ] || break
+    echo "attempt $i of 8 failed, retrying in $delay s: $*"
+    sleep "$delay"
+    delay=$((delay * 2))
+  done
+  return 1
+}
+
 # llmman's --runtime auto falls through docker -> podman -> bin on any failure
 # (a slow docker info, a failed image pull) and keeps that choice; under
 # rootless podman the model mount gets an SELinux label llama.cpp cannot read.
@@ -74,7 +90,9 @@ else
   # /boot is an idle-unmounting automount that bootc itself cannot retrigger
   # (bootc-dev/bootc#2402); any other access remounts it
   ls /boot >/dev/null
+  patiently docker pull hello-world
   docker run --rm hello-world
+  patiently as_test "podman pull quay.io/podman/hello"
   as_test "podman run --rm quay.io/podman/hello"
   # Rootless Docker as a user sets it up. The tool needs the user's systemd,
   # which lingering starts (asynchronously, hence the start); --force because
