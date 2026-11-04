@@ -6,15 +6,19 @@ inputs:
   variant:
     description: The variant, which is the loaded image's tag
     required: true
+  keep-archive:
+    description: Keep image.tar, for a push that does not go through Docker
+    default: "false"
 runs:
   using: composite
   steps:
     - shell: bash
       env:
         VARIANT: ${{ inputs.variant }}
+        KEEP: ${{ inputs.keep-archive }}
       run: |
         docker load -i "$RUNNER_TEMP/image.tar"
-        rm "$RUNNER_TEMP/image.tar"
+        [ "$KEEP" = true ] || rm "$RUNNER_TEMP/image.tar"
         layers=$(docker image inspect --format '{{len .RootFS.Layers}}' "agenticlinux:$VARIANT")
         echo "$layers layers"
         if [ "$layers" -gt "$LAYER_LIMIT" ]; then
