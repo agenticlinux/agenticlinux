@@ -22,7 +22,7 @@
 #     docker load -i image.tar
 ARG BASE=quay.io/fedora-ostree-desktops/base-atomic:45
 # rpm-ostree for the repacking; CentOS's hangs in a container build
-ARG RECHUNKER=quay.io/fedora/fedora-bootc:45
+ARG RECHUNKER=quay.io/fedora/fedora-bootc:46
 
 # bootguard (automatic rollback of a failed update) is built on the variant's own
 # base, so it links against the distribution it runs on. dnf gets the patience
