@@ -1,0 +1,26 @@
+name: Container smoke test
+description: >-
+  Load the image built to $RUNNER_TEMP/image.tar, check its layer count against
+  LAYER_LIMIT and run the smoke test in a container of it.
+inputs:
+  variant:
+    description: The variant, which is the loaded image's tag
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        VARIANT: ${{ inputs.variant }}
+      run: |
+        docker load -i "$RUNNER_TEMP/image.tar"
+        rm "$RUNNER_TEMP/image.tar"
+        layers=$(docker image inspect --format '{{len .RootFS.Layers}}' "agenticlinux:$VARIANT")
+        echo "$layers layers"
+        if [ "$layers" -gt "$LAYER_LIMIT" ]; then
+          echo "::error::agenticlinux:$VARIANT has $layers layers, more than $LAYER_LIMIT"
+          exit 1
+        fi
+        docker buildx prune -af
+        docker build -f test/Dockerfile --build-arg "IMAGE=agenticlinux:$VARIANT" -t agenticlinux:smoke .
+        docker run --rm agenticlinux:smoke smoke-vm

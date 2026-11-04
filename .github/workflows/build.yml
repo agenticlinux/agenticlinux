@@ -89,37 +89,7 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v7
-      - name: Free disk space, use the containerd image store
-        # overlay2's docker load doesn't take an OCI layout
-        run: |
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache /usr/local/.ghcup /usr/share/swift \
-            /usr/lib/jvm /usr/share/miniconda /usr/lib/google-cloud-sdk /opt/microsoft /opt/az \
-            /usr/local/julia* /usr/local/share/powershell /usr/local/share/boost /usr/local/share/chromium \
-            /home/linuxbrew /usr/local/aws-cli /usr/local/aws-sam-cli
-          docker system prune -af
-          echo '{"features": {"containerd-snapshotter": true}}' | sudo tee /etc/docker/daemon.json
-          # Some x86_64 runners have a 72 GB root disk (/dev/mapper/cow-root,
-          # 45 GB free after the old cleanup) instead of the usual 145 GB. The
-          # rechunk stage of the larger variants runs out of it (rpm-ostree:
-          # "No space left on device", "min-free-space-percent '3%' would be
-          # exceeded"; centos-base, centos-kde and gnome in the runs of 1 and
-          # 3 November). The cleanup above frees more, and where /mnt is a
-          # bigger, separate disk than the root, Docker's and containerd's
-          # stores go there.
-          root_free=$(df --output=avail -B1 / | tail -n1)
-          mnt_free=$(df --output=avail -B1 /mnt | tail -n1)
-          if [ "$(df --output=source / | tail -n1)" != "$(df --output=source /mnt | tail -n1)" ] &&
-             [ "$mnt_free" -gt "$root_free" ]; then
-            sudo systemctl stop docker.socket docker containerd
-            for d in docker containerd; do
-              sudo rm -rf "/var/lib/$d"/*
-              sudo mkdir -p "/mnt/$d" "/var/lib/$d"
-              sudo mount --bind "/mnt/$d" "/var/lib/$d"
-            done
-            sudo systemctl start containerd
-          fi
-          sudo systemctl restart docker
-          df -h / /mnt /var/lib/docker
+      - uses: ./.github/actions/free-disk-space
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v7
         with:
@@ -147,21 +117,9 @@ jobs:
           compression-level: 0
           retention-days: 1
           overwrite: true
-      - name: Smoke test in a container
-        env:
-          VARIANT: ${{ matrix.variant }}
-        run: |
-          docker load -i "$RUNNER_TEMP/image.tar"
-          rm "$RUNNER_TEMP/image.tar"
-          layers=$(docker image inspect --format '{{len .RootFS.Layers}}' "agenticlinux:$VARIANT")
-          echo "$layers layers"
-          if [ "$layers" -gt "$LAYER_LIMIT" ]; then
-            echo "::error::agenticlinux:$VARIANT has $layers layers, more than $LAYER_LIMIT"
-            exit 1
-          fi
-          docker buildx prune -af
-          docker build -f test/Dockerfile --build-arg "IMAGE=agenticlinux:$VARIANT" -t agenticlinux:smoke .
-          docker run --rm agenticlinux:smoke smoke-vm
+      - uses: ./.github/actions/container-smoke
+        with:
+          variant: ${{ matrix.variant }}
       - if: runner.arch == 'X64'
         # The runner image's package lists are as old as the image, and the
         # mirror drops a .deb as soon as noble-updates replaces it, so an

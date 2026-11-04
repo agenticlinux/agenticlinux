@@ -15,9 +15,16 @@ read -r DISTRO RELEASE PLATFORM < <(. /usr/lib/os-release; echo "$ID $VERSION_ID
 # A Fedora variant is named for its release too (fedora45-kde): the name has to
 # match the base image's. The plain name (kde) takes whatever release the base
 # is, for local builds.
+#
+# 16k-fedora45-kde (or 16k-kde) is the same variant for a kernel with 16 KiB
+# pages, Apple Silicon so far; 64k- would read the same way.
 case "$VARIANT" in
-  fedora[0-9]*-*) want_release=${VARIANT#fedora}; want_release=${want_release%%-*}; desktop=${VARIANT#*-} ;;
-  *)              want_release="";                                                  desktop=$VARIANT ;;
+  16k-*) K16=1; spec=${VARIANT#16k-} ;;
+  *)     K16=0; spec=$VARIANT ;;
+esac
+case "$spec" in
+  fedora[0-9]*-*) want_release=${spec#fedora}; want_release=${want_release%%-*}; desktop=${spec#*-} ;;
+  *)              want_release="";                                                desktop=$spec ;;
 esac
 case "$desktop" in
   kde|centos-kde)     DESKTOP="KDE Plasma" ;;
@@ -30,6 +37,7 @@ case "$desktop" in
   *) echo "unknown VARIANT '$VARIANT'" >&2; exit 1 ;;
 esac
 case "$desktop" in centos-*) want=centos ;; *) want=fedora ;; esac
+[ "$K16" = 0 ] || [ "$want" = fedora ] || { echo "VARIANT '$VARIANT': 16k variants are Fedora only" >&2; exit 1; }
 [ "$DISTRO" = "$want" ] || { echo "VARIANT '$VARIANT' needs a $want base image, not $DISTRO" >&2; exit 1; }
 [ -z "$want_release" ] || [ "$RELEASE" = "$want_release" ] ||
   { echo "VARIANT '$VARIANT' needs a Fedora $want_release base image, not $RELEASE" >&2; exit 1; }
@@ -88,8 +96,49 @@ release_tags() {
     sed -n 's|.*refs/tags/\(v[0-9.]*\)$|\1|p') && [ -n "$tags" ] && echo "$tags"
 }
 
-KVER=$(rpm -q kernel --qf '%{VERSION}-%{RELEASE}.%{ARCH}')
-read -r kv kr < <(rpm -q kernel --qf '%{VERSION} %{RELEASE}\n')
+if [ "$K16" = 1 ]; then
+  # Fedora's kernel is replaced by kernel-16k, with the Asahi project's
+  # platform packages (firmware, m1n1 and U-Boot updaters, Mesa, audio), as in
+  # its own images
+  curl -o /etc/yum.repos.d/asahi-bootstrap.repo \
+    "https://copr.fedorainfracloud.org/coprs/g/asahi/fedora-remix-branding/repo/fedora-${RELEASE}/group_asahi-fedora-remix-branding-fedora-${RELEASE}.repo"
+  dnf -y install asahi-repos
+  rm /etc/yum.repos.d/asahi-bootstrap.repo # asahi-repos has the same repository
+  # Its Mesa and U-Boot rank above Fedora's newer ones, but dnf ignores that for
+  # an installed package, hence the pins below
+  sed -i 's/^priority=.*/priority=5/' /etc/yum.repos.d/group_asahi-mesa.repo /etc/yum.repos.d/group_asahi-u-boot.repo
+  # protect_running_kernel: the build host may be running the base's kernel
+  # shellcheck disable=SC2086
+  dnf -y --setopt=protect_running_kernel=false remove $(rpm -qa 'kernel' 'kernel-core' 'kernel-modules*')
+  platform="asahi-platform-metapackage asahi-platform-metapackage-core asahi-platform-metapackage-mesa asahi-platform-metapackage-audio"
+  [ "$desktop" != kde ] || platform="$platform asahi-platform-metapackage-plasma"
+  # shellcheck disable=SC2086
+  dnf -y install $platform alsa-ucm-asahi fedora-asahi-remix-scripts tiny-dfr grub2-efi-aa64-modules \
+    uboot-images-armv8 asahi-fwupdate dracut-asahi update-m1n1 aajohan-comfortaa-fonts
+  # Pin what is installed to each Asahi repository's newest build (Mesa, U-Boot, kernel tools)
+  rpm -qa --qf '%{NAME}\n' | sort -u > /tmp/installed.names
+  for repo in kernel mesa u-boot; do
+    pins=$(dnf -q repoquery --repo="copr:copr.fedorainfracloud.org:group_asahi:$repo" --latest-limit=1 \
+        --qf '%{name} %{epoch}:%{version}-%{release}.%{arch}\n' |
+      awk 'NR==FNR{have[$1]=1;next} ($1 in have) && $2 !~ /\.src$/ {print $1"-"$2}' /tmp/installed.names -)
+    # shellcheck disable=SC2086
+    [ -z "$pins" ] || dnf -y install --allowerasing $pins
+  done
+  rm /tmp/installed.names
+  # U-Boot loads EFI/BOOT/BOOTAA64.EFI, which wants grubaa64.efi beside it, as
+  # the Asahi installer lays it out; Fedora's is only under EFI/fedora
+  for efidir in /usr/lib/efi/grub2/*/EFI; do
+    install -Dm644 "$efidir/fedora/grubaa64.efi" "$efidir/BOOT/grubaa64.efi"
+  done
+  # kernel-16k's modules directory ends in +16k, which is what dracut takes
+  kernels=(/usr/lib/modules/*/)
+  [ "${#kernels[@]}" = 1 ] || { echo "expected one kernel, found: ${kernels[*]}" >&2; exit 1; }
+  KVER=$(basename "${kernels[0]}")
+  kv="" kr=""
+else
+  KVER=$(rpm -q kernel --qf '%{VERSION}-%{RELEASE}.%{ARCH}')
+  read -r kv kr < <(rpm -q kernel --qf '%{VERSION} %{RELEASE}\n')
+fi
 # What differs by distribution: RPM Fusion's branch, the NVIDIA driver (the
 # EL branch has it as a versioned stream), ID_LIKE, and where the kernel-devel
 # matching the kernel comes from. akmods requires it, and left to dnf the
@@ -113,7 +162,10 @@ case "$DISTRO" in
     fi
     koji="https://kojipkgs.fedoraproject.org/packages/kernel/${kv}/${kr}/$(uname -m)"
     KDEVEL=""
-    for p in kernel-devel kernel-devel-matched; do
+    # 16k hardware so far (Apple Silicon) has no NVIDIA GPU: no module to build
+    kdevel="kernel-devel kernel-devel-matched"
+    [ "$K16" = 0 ] || kdevel=""
+    for p in $kdevel; do
       if [ -n "$(dnf -q repoquery --available "${p}-${KVER}")" ]; then
         KDEVEL="$KDEVEL ${p}-${KVER}"
       else
@@ -192,7 +244,10 @@ fi
 curl -o /tmp/docker-sbx.rpm \
   "https://github.com/docker/sbx-releases/releases/download/nightly/DockerSandboxes-linux-${ARCH}-rockylinux8.rpm"
 # shellcheck disable=SC2046,SC2086
-dnf -y install $(sed 's/#.*//' /tmp/packages.txt) $KDEVEL /tmp/docker-sbx.rpm
+PACKAGES=$(sed 's/#.*//' /tmp/packages.txt)
+# no NVIDIA GPU on 16k hardware, so no driver build or container toolkit
+[ "$K16" = 0 ] || PACKAGES=$(grep -v -x -E 'akmods|nvidia-container-toolkit' <<<"$PACKAGES")
+dnf -y install $PACKAGES $KDEVEL /tmp/docker-sbx.rpm
 
 # vim is the editor; the base images also have nano. Fedora's makes it EDITOR
 # with nano-default-editor, which vim-default-editor replaces. CentOS has
@@ -227,7 +282,9 @@ nvidia_install() {
     modinfo -k "${KVER}" nvidia >/dev/null &&
     dnf -y install "$CUDA"
 }
-if nvidia_install; then
+if [ "$K16" = 1 ]; then
+  rm -f /usr/lib/bootc/kargs.d/10-nvidia.toml
+elif nvidia_install; then
   :
 elif [ "$(uname -m)" = aarch64 ]; then
   tail -n 30 /var/cache/akmods/*/*.failed.log || true
@@ -239,7 +296,7 @@ fi
 for p in "$NVIDIA" "kernel-devel-${KVER}"; do
   if rpm -q "$p" >/dev/null; then dnf -y remove "$p"; fi
 done
-nvidia-ctk runtime configure --runtime=docker
+[ "$K16" = 1 ] || nvidia-ctk runtime configure --runtime=docker
 
 # --- Agents -----------------------------------------------------------------
 # Upstream Node bundles its own SQLite; OpenClaw refuses the system SQLite the
@@ -534,8 +591,11 @@ done
 # The boot splash's watermark was the logo package's too, and it is baked into
 # the initramfs, so that is rebuilt the way the bootc images build it (their
 # dracut.conf.d already says hostonly=no).
+# (a 16k kernel has no initramfs yet, so it is built with or without a splash)
 if [ -d /usr/share/plymouth/themes/spinner ]; then
   install -m644 /tmp/logo/agenticlinux-logo-64.png /usr/share/plymouth/themes/spinner/watermark.png
+fi
+if [ -d /usr/share/plymouth/themes/spinner ] || [ "$K16" = 1 ]; then
   dracut --no-hostonly --kver "$KVER" --reproducible --add ostree --tmpdir /tmp -f /tmp/initramfs.img
   install -m600 /tmp/initramfs.img "/usr/lib/modules/$KVER/initramfs.img"
 fi

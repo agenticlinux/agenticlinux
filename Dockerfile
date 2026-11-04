@@ -11,6 +11,8 @@
 #   centos-kde centos-gnome centos-base
 #     quay.io/centos-bootc/centos-bootc:stream10 (the desktop is installed
 #     by build.sh; CentOS has no desktop images)
+#   16k-fedora45-X, X as above (and 16k-X for the plain name)
+#     the same images, with a 16 KiB-page kernel swapped in by build.sh
 # REPO_URL is the project's home: the OS identity files point at it and the
 # logo is downloaded from its release assets. VERSION is the version bootc
 # status shows.

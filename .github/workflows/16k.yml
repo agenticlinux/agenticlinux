@@ -1,0 +1,79 @@
+name: Build 16k
+
+# The Fedora variants with a 16 KiB-page kernel (Apple Silicon so far), built on
+# the same bases as Build; see build.sh. aarch64 only, and not booted in CI: no
+# hosted runner has the hardware. Tags: 16k-fedora45-kde and 16k-kde, each also
+# as <tag>-<version>.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 */12 * * *"
+  workflow_dispatch:
+
+env:
+  IMAGE: docker.io/${{ vars.DOCKER_HUB_USER }}/agenticlinux
+  FEDORA: 45
+  REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+  LAYER_LIMIT: 100
+
+concurrency:
+  group: build-16k
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # the fedora-ostree-desktops image of each desktop, as in Build
+          - {variant: kde, base: kinoite}
+          - {variant: gnome, base: silverblue}
+          - {variant: sway, base: sway-atomic}
+          - {variant: cosmic, base: cosmic-atomic}
+          - {variant: xfce, base: xfce-atomic}
+          - {variant: budgie, base: budgie-atomic}
+          - {variant: base, base: base-atomic}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+      - name: Name and version
+        id: out
+        run: |
+          echo "VARIANT=16k-fedora$FEDORA-${{ matrix.variant }}" >> "$GITHUB_ENV"
+          echo "version=$FEDORA.$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+      - uses: ./.github/actions/free-disk-space
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          target: chunked
+          build-args: |
+            BASE=quay.io/fedora-ostree-desktops/${{ matrix.base }}:${{ env.FEDORA }}
+            RECHUNKER=quay.io/fedora/fedora-bootc:${{ env.FEDORA }}
+            VARIANT=${{ env.VARIANT }}
+            VERSION=${{ steps.out.outputs.version }}
+            REPO_URL=${{ env.REPO_URL }}
+          provenance: false
+          sbom: false
+          outputs: type=tar,dest=${{ runner.temp }}/image.tar
+      - uses: ./.github/actions/container-smoke
+        with:
+          variant: ${{ env.VARIANT }}
+      # One architecture, so plain tags rather than a manifest list
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_PAT }}
+      - name: Push
+        env:
+          DEFAULT: 16k-${{ matrix.variant }}
+          VERSION: ${{ steps.out.outputs.version }}
+        run: |
+          for tag in "$VARIANT" "$VARIANT-$VERSION" "$DEFAULT" "$DEFAULT-$VERSION"; do
+            docker tag "agenticlinux:$VARIANT" "$IMAGE:$tag"
+            docker push "$IMAGE:$tag"
+          done
