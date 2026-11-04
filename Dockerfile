@@ -20,7 +20,7 @@
 # (rechunk.sh) as an OCI layout:
 #   docker build --target chunked -o type=tar,dest=image.tar . &&
 #     docker load -i image.tar
-ARG BASE=quay.io/fedora-ostree-desktops/base-atomic:45
+ARG BASE=quay.io/fedora-ostree-desktops/base-atomic:46
 # rpm-ostree for the repacking; CentOS's hangs in a container build
 ARG RECHUNKER=quay.io/fedora/fedora-bootc:45
 
