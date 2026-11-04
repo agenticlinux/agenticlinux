@@ -48,7 +48,7 @@ jobs:
   # which has no desktop, so build.sh installs it. build.sh has the same table
   # for the OS identity.
   setup:
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     outputs:
       tag: ${{ steps.out.outputs.tag }}
       variants: ${{ steps.out.outputs.variants }}
@@ -360,7 +360,7 @@ jobs:
     strategy:
       matrix:
         variant: ${{ fromJSON(needs.setup.outputs.variants) }}
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       actions: read
       contents: read
@@ -412,7 +412,7 @@ jobs:
   # idempotent: create checks for the release first, upload clobbers.
   release:
     needs: [setup, push]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
@@ -473,7 +473,7 @@ jobs:
 
   publish:
     needs: [setup, iso]
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     permissions:
       contents: write
     steps:
