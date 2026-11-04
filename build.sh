@@ -11,7 +11,15 @@ esac
 # The base image sets the distribution, the variant the desktop; the workflow
 # has the same table. os-release is read in a subshell: it sets VARIANT too.
 read -r DISTRO RELEASE PLATFORM < <(. /usr/lib/os-release; echo "$ID $VERSION_ID ${PLATFORM_ID:-}")
+#
+# A Fedora variant is named for its release too (fedora45-kde): the name has to
+# match the base image's. The plain name (kde) takes whatever release the base
+# is, for local builds.
 case "$VARIANT" in
+  fedora[0-9]*-*) want_release=${VARIANT#fedora}; want_release=${want_release%%-*}; desktop=${VARIANT#*-} ;;
+  *)              want_release="";                                                  desktop=$VARIANT ;;
+esac
+case "$desktop" in
   kde|centos-kde)     DESKTOP="KDE Plasma" ;;
   gnome|centos-gnome) DESKTOP=GNOME ;;
   sway)               DESKTOP=Sway ;;
@@ -21,8 +29,10 @@ case "$VARIANT" in
   base|centos-base)   DESKTOP="no desktop" ;;
   *) echo "unknown VARIANT '$VARIANT'" >&2; exit 1 ;;
 esac
-case "$VARIANT" in centos-*) want=centos ;; *) want=fedora ;; esac
+case "$desktop" in centos-*) want=centos ;; *) want=fedora ;; esac
 [ "$DISTRO" = "$want" ] || { echo "VARIANT '$VARIANT' needs a $want base image, not $DISTRO" >&2; exit 1; }
+[ -z "$want_release" ] || [ "$RELEASE" = "$want_release" ] ||
+  { echo "VARIANT '$VARIANT' needs a Fedora $want_release base image, not $RELEASE" >&2; exit 1; }
 
 # /root is a dangling symlink to /var/roothome during the build
 export HOME=/tmp
@@ -95,6 +105,12 @@ read -r kv kr < <(rpm -q kernel --qf '%{VERSION} %{RELEASE}\n')
 case "$DISTRO" in
   fedora)
     RPMFUSION=fedora NVIDIA=akmod-nvidia CUDA=xorg-x11-drv-nvidia-cuda ID_LIKE=fedora
+    # Fedora 45 on aarch64 (DGX Spark and other GB10 machines, whose NVIDIA
+    # driver is the 580 branch) takes RPM Fusion's 580xx stream: the current
+    # 615 one needs a Tegra library nothing provides, see nvidia_install
+    if [ "$(uname -m)" = aarch64 ] && [ "$RELEASE" -ge 45 ]; then
+      NVIDIA=akmod-nvidia-580xx CUDA=xorg-x11-drv-nvidia-580xx-cuda
+    fi
     koji="https://kojipkgs.fedoraproject.org/packages/kernel/${kv}/${kr}/$(uname -m)"
     KDEVEL=""
     for p in kernel-devel kernel-devel-matched; do

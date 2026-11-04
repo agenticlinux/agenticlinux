@@ -11,7 +11,11 @@ on:
 
 env:
   IMAGE: docker.io/${{ vars.DOCKER_HUB_USER }}/agenticlinux
-  FEDORA: 44
+  # The default Fedora release: the plain tags (kde, gnome, ...) are its
+  # variants, and it is the release tag's prefix. FEDORA_PREVIOUS is the one
+  # before, kept as the fedora44-* variants.
+  FEDORA: 45
+  FEDORA_PREVIOUS: 44
   CENTOS: 10
   REPO_URL: ${{ github.server_url }}/${{ github.repository }}
   # Docker's overlay2 store refuses images of over 125 layers ("max depth
@@ -35,7 +39,10 @@ concurrency:
 # HVF guests on the Intel macOS runners are 5-10x slower.
 jobs:
   # The variants are named after their desktop, prefixed with the distribution
-  # unless that is Fedora; that is also the public tag and the ISO name.
+  # and, for Fedora, its release (fedora45-kde, fedora44-kde, centos-kde); that
+  # is also the public tag. The default Fedora release's variants also get the
+  # plain desktop name as a tag (kde for fedora45-kde), see push, and as the
+  # ISO name (iso).
   # "bases" maps each onto the upstream bootc image it is built from
   # (Dockerfile BASE): Fedora's desktop images, or CentOS Stream's one image,
   # which has no desktop, so build.sh installs it. build.sh has the same table
@@ -50,12 +57,21 @@ jobs:
       - id: out
         run: |
           echo "tag=$FEDORA.$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
-          echo 'variants=["kde","gnome","sway","cosmic","xfce","budgie","base","centos-kde","centos-gnome","centos-base"]' >> "$GITHUB_OUTPUT"
           f=quay.io/fedora-ostree-desktops c=quay.io/centos-bootc/centos-bootc:stream$CENTOS
-          bases=$(printf '"%s":"%s",' \
-            kde "$f/kinoite:$FEDORA" gnome "$f/silverblue:$FEDORA" sway "$f/sway-atomic:$FEDORA" \
-            cosmic "$f/cosmic-atomic:$FEDORA" xfce "$f/xfce-atomic:$FEDORA" budgie "$f/budgie-atomic:$FEDORA" \
-            base "$f/base-atomic:$FEDORA" centos-kde "$c" centos-gnome "$c" centos-base "$c")
+          variants=() bases=()
+          for r in "$FEDORA" "$FEDORA_PREVIOUS"; do
+            for d in kde:kinoite gnome:silverblue sway:sway-atomic cosmic:cosmic-atomic \
+                     xfce:xfce-atomic budgie:budgie-atomic base:base-atomic; do
+              variants+=("fedora$r-${d%:*}")
+              bases+=("fedora$r-${d%:*}" "$f/${d#*:}:$r")
+            done
+          done
+          for d in kde gnome base; do
+            variants+=("centos-$d")
+            bases+=("centos-$d" "$c")
+          done
+          echo "variants=$(printf '"%s",' "${variants[@]}" | sed 's/^/[/; s/,$/]/')" >> "$GITHUB_OUTPUT"
+          bases=$(printf '"%s":"%s",' "${bases[@]}")
           echo "bases={${bases%,}}" >> "$GITHUB_OUTPUT"
 
   # Build each variant natively and run the smoke test in a container of it;
@@ -88,7 +104,7 @@ jobs:
           target: chunked
           build-args: |
             BASE=${{ fromJSON(needs.setup.outputs.bases)[matrix.variant] }}
-            RECHUNKER=quay.io/fedora/fedora-bootc:${{ env.FEDORA }}
+            RECHUNKER=quay.io/fedora/fedora-bootc:${{ startsWith(matrix.variant, 'fedora44-') && env.FEDORA_PREVIOUS || env.FEDORA }}
             VARIANT=${{ matrix.variant }}
             VERSION=${{ needs.setup.outputs.tag }}
             REPO_URL=${{ env.REPO_URL }}
@@ -169,7 +185,7 @@ jobs:
         # The installer runs from the distribution's own bootc image.
         env:
           VARIANT: ${{ matrix.variant }}
-          BOOTC: ${{ startsWith(matrix.variant, 'centos-') && format('quay.io/centos-bootc/centos-bootc:stream{0}', env.CENTOS) || format('quay.io/fedora/fedora-bootc:{0}', env.FEDORA) }}
+          BOOTC: ${{ startsWith(matrix.variant, 'centos-') && format('quay.io/centos-bootc/centos-bootc:stream{0}', env.CENTOS) || format('quay.io/fedora/fedora-bootc:{0}', startsWith(matrix.variant, 'fedora44-') && env.FEDORA_PREVIOUS || env.FEDORA) }}
         run: |
           mkdir oci && docker save agenticlinux:smoke | tar x -C oci
           # The image is in the artifact and in oci now. Everything Docker
@@ -357,7 +373,14 @@ jobs:
             docker push "$IMAGE:$VARIANT-$TAG-${arch#*:}"
             docker rmi "agenticlinux:$VARIANT" "$IMAGE:$VARIANT-$TAG-${arch#*:}"
           done
-          docker buildx imagetools create -t "$IMAGE:$VARIANT" -t "$IMAGE:$VARIANT-$TAG" \
+          # The default release's variants are also the plain desktop name:
+          # kde and kde-<tag> are fedora45-kde and fedora45-kde-<tag>
+          tags=(-t "$IMAGE:$VARIANT" -t "$IMAGE:$VARIANT-$TAG")
+          default=${VARIANT#"fedora$FEDORA-"}
+          if [ "$default" != "$VARIANT" ]; then
+            tags+=(-t "$IMAGE:$default" -t "$IMAGE:$default-$TAG")
+          fi
+          docker buildx imagetools create "${tags[@]}" \
             "$IMAGE:$VARIANT-$TAG-x86_64" "$IMAGE:$VARIANT-$TAG-aarch64"
 
   # GitHub Releases answers 500 now and then (an ISO upload has failed with
@@ -405,9 +428,11 @@ jobs:
         env:
           VARIANT: ${{ matrix.variant }}
           TAG: ${{ needs.setup.outputs.tag }}
-          BUILDER: ${{ startsWith(matrix.variant, 'centos-') && format('quay.io/centos/centos:stream{0}', env.CENTOS) || format('fedora:{0}', env.FEDORA) }}
+          BUILDER: ${{ startsWith(matrix.variant, 'centos-') && format('quay.io/centos/centos:stream{0}', env.CENTOS) || format('fedora:{0}', startsWith(matrix.variant, 'fedora44-') && env.FEDORA_PREVIOUS || env.FEDORA) }}
         run: |
-          iso="agenticlinux-$VARIANT-$(uname -m).iso"
+          # The default release's ISO is named for the plain desktop
+          # (agenticlinux-kde-x86_64.iso), the others for their variant
+          iso="agenticlinux-${VARIANT#"fedora$FEDORA-"}-$(uname -m).iso"
           for i in $(seq 12); do docker pull "$BUILDER" && break || sleep 20; done
           docker run --rm -v "$PWD:/w" -w /w -e REPO_URL "$BUILDER" \
             iso/build.sh "$IMAGE:$VARIANT-$TAG" "$VARIANT" "/w/$iso"

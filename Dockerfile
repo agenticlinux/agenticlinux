@@ -3,9 +3,11 @@
 #
 # BASE is the upstream bootc image a variant is built from and VARIANT the
 # variant's name (the public tag). The pairs, also in the workflow's table:
-#   kde gnome sway cosmic xfce budgie base
+#   fedora45-X fedora44-X, X one of kde gnome sway cosmic xfce budgie base
 #     quay.io/fedora-ostree-desktops/{kinoite,silverblue,sway-atomic,
-#     cosmic-atomic,xfce-atomic,budgie-atomic,base-atomic}:<fedora>
+#     cosmic-atomic,xfce-atomic,budgie-atomic,base-atomic}:<45 or 44>
+#     (the plain name, kde, is a tag of fedora45-kde, and builds locally
+#     against whatever release BASE is)
 #   centos-kde centos-gnome centos-base
 #     quay.io/centos-bootc/centos-bootc:stream10 (the desktop is installed
 #     by build.sh; CentOS has no desktop images)
@@ -18,9 +20,9 @@
 # (rechunk.sh) as an OCI layout:
 #   docker build --target chunked -o type=tar,dest=image.tar . &&
 #     docker load -i image.tar
-ARG BASE=quay.io/fedora-ostree-desktops/base-atomic:44
+ARG BASE=quay.io/fedora-ostree-desktops/base-atomic:45
 # rpm-ostree for the repacking; CentOS's hangs in a container build
-ARG RECHUNKER=quay.io/fedora/fedora-bootc:44
+ARG RECHUNKER=quay.io/fedora/fedora-bootc:45
 
 # bootguard (automatic rollback of a failed update) is built on the variant's own
 # base, so it links against the distribution it runs on. dnf gets the patience
