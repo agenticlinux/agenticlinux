@@ -80,6 +80,19 @@ CentOS Stream 10, with EPEL, has two desktops and a base image:
 | GNOME      | `centos-gnome`   |
 | no desktop | `centos-base`    |
 
+The `16k-` variants are the Fedora 45 variants with a 16 KiB-page kernel, for Apple
+Silicon Macs (see [16k kernels](#16k-kernels)):
+
+| Desktop    | 16k, Fedora 45                      |
+|------------|-------------------------------------|
+| KDE Plasma | `16k-kde`, `16k-fedora45-kde`       |
+| GNOME      | `16k-gnome`, `16k-fedora45-gnome`   |
+| Sway       | `16k-sway`, `16k-fedora45-sway`     |
+| COSMIC     | `16k-cosmic`, `16k-fedora45-cosmic` |
+| Xfce       | `16k-xfce`, `16k-fedora45-xfce`     |
+| Budgie     | `16k-budgie`, `16k-fedora45-budgie` |
+| no desktop | `16k-base`, `16k-fedora45-base`     |
+
 The variants carry the same packages on both distributions, so the list is
 what CentOS Stream 10, EPEL 10 and RPM Fusion have: GNOME and KDE Plasma are
 the desktops that exist there. CentOS Stream's kernel tracks the next RHEL
@@ -211,9 +224,34 @@ image:
 sudo systemctl enable --now bootc-fetch-apply-updates.timer
 ```
 
+## 16k kernels
+
+The `16k-` variants are named for the kernel's page size, not the hardware, so other
+16 KiB machines (and a `64k-` variant) can follow. Each is the variant without the
+prefix with its kernel swapped for `kernel-16k` and, for Apple Silicon, the
+[Asahi project](https://asahilinux.org/fedora/)'s platform packages (firmware,
+m1n1 and U-Boot updaters, Mesa, audio). The branding is AgenticLinux's, as for every
+variant. aarch64 only.
+
+There is no installer: the Asahi installer sets up m1n1 and U-Boot, so install an
+atomic Fedora Asahi Remix first
+([guide](https://github.com/fedora-asahi-remix-atomic-desktops/images#how-to-use)),
+then switch:
+
+```sh
+sudo bootc switch docker.io/ericcurtin044/agenticlinux:16k-kde
+```
+
+`/home` and `/var` carry over and the previous image stays as the rollback, so check
+`btrfs filesystem usage /sysroot` first: the image adds about 15 GB for KDE Plasma
+(14 GB with no desktop), and `compress=zstd:1` halves that. There is no NVIDIA driver,
+CUDA or ROCm; the GPU is Apple's. CI builds and smoke-tests these in a container
+only, as it has no Apple hardware to boot.
+
 ## GPUs
 
 - Vulkan: Mesa drivers and `vulkaninfo`.
+- Apple Silicon: Mesa's Asahi drivers (OpenGL, Vulkan) on the `16k-` variants.
 - ROCm (x86_64): HIP runtime, OpenCL, rocBLAS, hipBLAS, hipBLASLt, RCCL,
   `rocminfo`, `rocm-smi`. Containers get GPU access with
   `--device /dev/kfd --device /dev/dri`.
