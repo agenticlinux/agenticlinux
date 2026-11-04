@@ -382,7 +382,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           VARIANT: ${{ matrix.variant }}
         run: for arch in X64 ARM64; do test/fetch-artifact.sh "image-$VARIANT-$arch"; done
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           username: ${{ vars.DOCKER_HUB_USER }}
           password: ${{ secrets.DOCKER_HUB_PAT }}
