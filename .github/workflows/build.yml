@@ -88,7 +88,7 @@ jobs:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Free disk space, use the containerd image store
         # overlay2's docker load doesn't take an OCI layout
         run: |
@@ -308,7 +308,7 @@ jobs:
       actions: read
       contents: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # A hard failure (ListArtifacts timing out) must not end the job: the
       # next step downloads what did not arrive, or fails.
       - uses: actions/download-artifact@v4
@@ -371,7 +371,7 @@ jobs:
           docker system prune -af
           echo '{"features": {"containerd-snapshotter": true}}' | sudo tee /etc/docker/daemon.json
           sudo systemctl restart docker
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # As in smoke
       - uses: actions/download-artifact@v4
         continue-on-error: true
@@ -444,7 +444,7 @@ jobs:
         runner: [ubuntu-24.04, ubuntu-24.04-arm]
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build ISO
         # iso/build.sh runs in a container of the image's distribution: that
         # is where lorax and the network installer ISO come from
