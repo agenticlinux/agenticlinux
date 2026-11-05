@@ -17,6 +17,8 @@ runs:
         VARIANT: ${{ inputs.variant }}
         KEEP: ${{ inputs.keep-archive }}
       run: |
+        # Free the build's cache before the image is loaded, not after
+        docker buildx prune -af
         docker load -i "$RUNNER_TEMP/image.tar"
         [ "$KEEP" = true ] || rm "$RUNNER_TEMP/image.tar"
         layers=$(docker image inspect --format '{{len .RootFS.Layers}}' "agenticlinux:$VARIANT")
@@ -25,6 +27,5 @@ runs:
           echo "::error::agenticlinux:$VARIANT has $layers layers, more than $LAYER_LIMIT"
           exit 1
         fi
-        docker buildx prune -af
         docker build -f test/Dockerfile --build-arg "IMAGE=agenticlinux:$VARIANT" -t agenticlinux:smoke .
         docker run --rm agenticlinux:smoke smoke-vm

@@ -5,14 +5,17 @@
 # Fedora's bootc images alone have 257.
 set -euxo pipefail
 
+# Write straight into /out, an empty OCI layout made here (rpm-ostree needs one):
+# with oci-archive: the layers also existed as a staging directory, an unpacked
+# copy and the archive at once, and 72 GB runners ran out of disk.
+mkdir -p /out/blobs/sha256
+echo '{"imageLayoutVersion":"1.0.0"}' > /out/oci-layout
+echo '{"schemaVersion":2,"manifests":[]}' > /out/index.json
 rpm-ostree compose build-chunked-oci --bootc --format-version=2 \
   --max-layers=96 --rootfs=/rootfs \
   --label ostree.bootable=true --label "ostree.linux=$(ls /rootfs/usr/lib/modules)" \
   ${VERSION:+--label "org.opencontainers.image.version=$VERSION"} \
-  --output oci-archive:/tmp/image.ociarchive
-mkdir /out
-tar -xf /tmp/image.ociarchive -C /out
-rm /tmp/image.ociarchive
+  --output oci:/out:latest
 
 # rpm-ostree writes no command, environment or stop signal: restore the base
 # images'. Also set the manifest's media type, which it leaves out, and the

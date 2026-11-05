@@ -63,13 +63,15 @@ curl() { command curl -fsSL --retry 12 --retry-delay 20 --retry-all-errors "$@";
 # bytes/s for 30 s, four times in a row) fails the transaction. Nothing is
 # installed until every package has downloaded, so re-running is safe.
 #
-# RPM Fusion's vlc-plugins-freeworld is never installed. It is built against
-# each VLC release the day it comes out and EPEL's VLC follows days to weeks
-# later, and in between it requires a vlc-libs nothing provides. CentOS's
-# multimedia group names it, and with kde-desktop the transaction then fails
-# however often it is retried. It also supplements vlc-plugins-base, so once
-# EPEL catches up any transaction would pull it in: it is excluded from all of
-# them, and the image is the same whichever repository is ahead.
+# RPM Fusion's vlc-plugins-freeworld and libheif-freeworld are never installed.
+# Each is built against one release of the package it extends the day that comes
+# out, and EPEL's follows days to weeks later. vlc-plugins-freeworld then
+# requires a vlc-libs nothing provides (CentOS's multimedia group names it, so
+# kde-desktop failed however often it was retried), and libheif-freeworld 1.23.6
+# a libheif that EPEL has at 1.23.7 (kf6-kimageformats: every centos-kde build).
+# They also supplement those packages, so once EPEL catches up any transaction
+# would pull them in: they are excluded from all of them, and the image is the
+# same whichever repository is ahead.
 #
 # A failed attempt also drops the cached repository metadata. dnf keeps what it
 # downloaded for the rest of the build, so a retry plans the same transaction
@@ -79,7 +81,7 @@ curl() { command curl -fsSL --retry 12 --retry-delay 20 --retry-all-errors "$@";
 # other builds, minutes apart, found 0.74.5. The output goes to stderr: callers
 # capture stdout.
 dnf_try() {
-  command dnf --exclude=vlc-plugins-freeworld "$@" && return
+  command dnf --exclude=vlc-plugins-freeworld --exclude=libheif-freeworld "$@" && return
   command dnf clean metadata >&2 || true
   return 1
 }
