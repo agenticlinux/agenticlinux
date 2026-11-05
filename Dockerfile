@@ -13,6 +13,9 @@
 #     by build.sh; CentOS has no desktop images)
 #   16k-fedora45-X, X as above (and 16k-X for the plain name)
 #     the same images, with a 16 KiB-page kernel swapped in by build.sh
+#   64k-fedora45-X, X as above (and 64k-X for the plain name)
+#     the same, with a 64 KiB-page kernel built from Fedora's source:
+#     KERNEL=kernel64k builds it (hours), KERNEL=<image> takes a built one
 # REPO_URL is the project's home: the OS identity files point at it and the
 # logo is downloaded from its release assets. VERSION is the version bootc
 # status shows.
@@ -23,8 +26,23 @@
 #   docker build --target chunked -o type=tar,dest=image.tar . &&
 #     docker load -i image.tar
 ARG BASE=quay.io/fedora-ostree-desktops/base-atomic:45
+# The 64k variants' kernel RPMs: a stage or image; the other variants have none
+ARG KERNEL=nokernel
+ARG FEDORA=45
 # rpm-ostree for the repacking; CentOS's hangs in a container build
 ARG RECHUNKER=quay.io/fedora/fedora-bootc:45
+
+FROM scratch AS nokernel
+
+# Pin the kernel's version with KERNEL_NVR, e.g. 7.2.15-300.fc45
+FROM quay.io/fedora/fedora:${FEDORA} AS kernel64k-build
+ARG KERNEL_NVR=
+RUN --mount=type=bind,source=kernel64k.sh,target=/kernel64k.sh KERNEL_NVR="$KERNEL_NVR" /kernel64k.sh
+
+FROM scratch AS kernel64k
+COPY --from=kernel64k-build /out/ /
+
+FROM ${KERNEL} AS kernel
 
 # bootguard (automatic rollback of a failed update) is built on the variant's own
 # base, so it links against the distribution it runs on. dnf gets the patience
@@ -48,7 +66,8 @@ ARG REPO_URL=https://github.com/ericcurtin/agenticlinux
 
 COPY usr /usr
 COPY packages.txt build.sh /tmp/
-RUN VARIANT="$VARIANT" REPO_URL="$REPO_URL" /tmp/build.sh
+# mounted, not copied: the kernel RPMs would stay in a layer
+RUN --mount=type=bind,from=kernel,target=/run/kernel VARIANT="$VARIANT" REPO_URL="$REPO_URL" /tmp/build.sh
 
 COPY --from=bootguard /src/target/release/agenticlinux-bootguard /usr/bin/agenticlinux-bootguard
 COPY bootguard/dist /
