@@ -13,23 +13,41 @@ runs:
           /home/linuxbrew /usr/local/aws-cli /usr/local/aws-sam-cli
         docker system prune -af
         echo '{"features": {"containerd-snapshotter": true}}' | sudo tee /etc/docker/daemon.json
-        # Some x86_64 runners have a 72 GB root disk (/dev/mapper/cow-root,
-        # 45 GB free after the old cleanup) instead of the usual 145 GB. The
-        # rechunk stage of the larger variants runs out of it (rpm-ostree:
-        # "No space left on device", "min-free-space-percent '3%' would be
-        # exceeded"; centos-base, centos-kde and gnome in the runs of 1 and
-        # 3 November). The cleanup above frees more, and where /mnt is a
-        # bigger, separate disk than the root, Docker's and containerd's
-        # stores go there.
+        # Some x86_64 runners have a 72 GB root (57 GB free here) instead of
+        # 145 GB, and a build needs about 62 GB (fedora45-kde). Docker's stores
+        # go to a bigger, separate /mnt if there is one. Otherwise the root is
+        # a device-mapper snapshot of the 74 GB system disk with a 220 GB disk
+        # as its copy-on-write store, which never holds more than the origin's
+        # size: the disk past 1.5 times that is unused, so use it for an ext4.
+        store=
         root_free=$(df --output=avail -B1 / | tail -n1)
         mnt_free=$(df --output=avail -B1 /mnt | tail -n1)
         if [ "$(df --output=source / | tail -n1)" != "$(df --output=source /mnt | tail -n1)" ] &&
            [ "$mnt_free" -gt "$root_free" ]; then
+          store=/mnt
+        elif [ "$root_free" -lt $((100 * 1024 ** 3)) ]; then
+          # "0 <sectors> snapshot <origin> <cow> <P|N> <chunk>", devices as major:minor
+          read -r _ sectors target _ cow _ < <(sudo dmsetup table "$(basename "$(findmnt -no SOURCE /)")" 2>/dev/null) || true
+          if [ "${target:-}" = snapshot ]; then
+            cow_dev=/dev/$(basename "$(readlink -f "/sys/dev/block/$cow")")
+            cow_size=$(sudo blockdev --getsize64 "$cow_dev")
+            offset=$((sectors * 512 * 3 / 2 / 1048576 * 1048576))
+            if [ $((cow_size - offset)) -gt $((40 * 1024 ** 3)) ]; then
+              dev=$(sudo losetup -f --show --offset "$offset" --sizelimit $((cow_size - offset)) "$cow_dev")
+              sudo mkfs.ext4 -q -m 0 -E lazy_itable_init=1,lazy_journal_init=1 "$dev"
+              sudo mkdir -p /mnt/big
+              sudo mount -o noatime "$dev" /mnt/big
+              store=/mnt/big
+            fi
+          fi
+          [ -n "$store" ] || echo "::warning::only $((root_free / 1024 ** 3)) GB free, and no unused disk found for Docker"
+        fi
+        if [ -n "$store" ]; then
           sudo systemctl stop docker.socket docker containerd
           for d in docker containerd; do
             sudo rm -rf "/var/lib/$d"/*
-            sudo mkdir -p "/mnt/$d" "/var/lib/$d"
-            sudo mount --bind "/mnt/$d" "/var/lib/$d"
+            sudo mkdir -p "$store/$d" "/var/lib/$d"
+            sudo mount --bind "$store/$d" "/var/lib/$d"
           done
           sudo systemctl start containerd
         fi
