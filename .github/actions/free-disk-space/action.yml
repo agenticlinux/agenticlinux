@@ -18,7 +18,7 @@ runs:
         # go to a bigger, separate /mnt if there is one. Otherwise the root is
         # a device-mapper snapshot of the 74 GB system disk with a 220 GB disk
         # as its copy-on-write store, which never holds more than the origin's
-        # size: the disk past 1.5 times that is unused, so use it for an ext4.
+        # size: the disk past 1.5 times that is unused, so use it for an xfs.
         store=
         root_free=$(df --output=avail -B1 / | tail -n1)
         mnt_free=$(df --output=avail -B1 /mnt | tail -n1)
@@ -34,7 +34,7 @@ runs:
             offset=$((sectors * 512 * 3 / 2 / 1048576 * 1048576))
             if [ $((cow_size - offset)) -gt $((40 * 1024 ** 3)) ]; then
               dev=$(sudo losetup -f --show --offset "$offset" --sizelimit $((cow_size - offset)) "$cow_dev")
-              sudo mkfs.ext4 -q -m 0 -E lazy_itable_init=1,lazy_journal_init=1 "$dev"
+              sudo mkfs.xfs -q "$dev"
               sudo mkdir -p /mnt/big
               sudo mount -o noatime "$dev" /mnt/big
               store=/mnt/big
