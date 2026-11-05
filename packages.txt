@@ -57,6 +57,7 @@ tldr
 
 # --- Development ------------------------------------------------------------
 git
+gh  # GitHub CLI: gh auth login, gh pr create; a git credential helper too
 mise
 clang
 llvm
