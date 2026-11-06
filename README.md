@@ -270,8 +270,8 @@ driver built for it. aarch64 only.
 Fedora has no 64k kernel (its `kernel.spec` turns the variant off), so CI builds one
 from Fedora's kernel source with [kernel64k.sh](kernel64k.sh): Fedora's aarch64
 configuration with the page-size options that Fedora's own RT 64k kernel has, and
-nothing else changed. It is built once per Fedora kernel version and kept as the
-image `kernel64k-fedora45-<version>`. Its modules are signed with a key made for the
+nothing else changed. CI builds it once per Fedora kernel version, not per variant.
+Its modules are signed with a key made for the
 build, not Fedora's, so Secure Boot has to be off, as for the NVIDIA module on every
 image.
 
@@ -282,7 +282,7 @@ sudo bootc switch docker.io/ericcurtin044/agenticlinux:64k-kde
 ```
 
 `/home` and `/var` carry over and the previous image stays as the rollback. To build
-one yourself, name the kernel stage, which takes hours (or an image of it from CI):
+one yourself, name the kernel stage, which takes hours:
 
 ```sh
 docker build --target chunked --build-arg VARIANT=64k-kde --build-arg KERNEL=kernel64k \

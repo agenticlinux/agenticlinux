@@ -1,0 +1,129 @@
+name: Build 64k
+
+# The Fedora variants with a 64 KiB-page kernel (DGX Spark, Arm servers), built
+# on the same bases as Build; see build.sh. Fedora has no kernel-64k, so the
+# kernel job builds one with kernel64k.sh (hours) once per Fedora kernel version,
+# cached, and the variants take it as an artifact. aarch64 only, not booted in
+# CI. Tags: 64k-fedora45-kde and 64k-kde, each also as <tag>-<version>.
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "47 */12 * * *"
+  workflow_dispatch:
+
+env:
+  IMAGE: docker.io/${{ vars.DOCKER_HUB_USER }}/agenticlinux
+  FEDORA: 45
+  REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+  LAYER_LIMIT: 100
+
+# Not cancelled by a newer push: a cold kernel build outlasts the gap between
+# pushes, and is only cached when it finishes.
+concurrency:
+  group: build-64k
+  cancel-in-progress: false
+
+jobs:
+  kernel:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v7
+      - name: Newest Fedora kernel
+        id: nvr
+        run: |
+          nvr=$(docker run --rm "quay.io/fedora/fedora:$FEDORA" \
+            dnf -q repoquery --latest-limit=1 --qf '%{version}-%{release}\n' kernel | tail -n 1)
+          [[ "$nvr" =~ ^[0-9][0-9.]*-[0-9][0-9.]*\.fc$FEDORA$ ]] || { echo "unexpected kernel version '$nvr'" >&2; exit 1; }
+          echo "nvr=$nvr" >> "$GITHUB_OUTPUT"
+      # Evictable: a miss rebuilds. The script is in the key.
+      - uses: actions/cache@v6
+        id: cache
+        with:
+          path: kernel
+          key: kernel64k-${{ steps.nvr.outputs.nvr }}-${{ hashFiles('kernel64k.sh') }}
+      - uses: ./.github/actions/free-disk-space
+        if: steps.cache.outputs.cache-hit != 'true'
+      - uses: docker/setup-buildx-action@v3
+        if: steps.cache.outputs.cache-hit != 'true'
+      - uses: docker/build-push-action@v7
+        if: steps.cache.outputs.cache-hit != 'true'
+        with:
+          context: .
+          target: kernel64k
+          build-args: |
+            FEDORA=${{ env.FEDORA }}
+            KERNEL_NVR=${{ steps.nvr.outputs.nvr }}
+          provenance: false
+          sbom: false
+          outputs: type=local,dest=kernel
+      - uses: actions/upload-artifact@v7
+        with:
+          name: kernel64k
+          path: kernel
+          retention-days: 1
+
+  build:
+    needs: kernel
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # the fedora-ostree-desktops image of each desktop, as in Build
+          - {variant: kde, base: kinoite}
+          - {variant: gnome, base: silverblue}
+          - {variant: sway, base: sway-atomic}
+          - {variant: cosmic, base: cosmic-atomic}
+          - {variant: xfce, base: xfce-atomic}
+          - {variant: budgie, base: budgie-atomic}
+          - {variant: base, base: base-atomic}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v7
+      - name: Name and version
+        id: out
+        run: |
+          echo "VARIANT=64k-fedora$FEDORA-${{ matrix.variant }}" >> "$GITHUB_ENV"
+          echo "version=$FEDORA.$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v8
+        with:
+          name: kernel64k
+          path: kernel
+      - uses: ./.github/actions/free-disk-space
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          # the RPMs replace the Dockerfile's kernel stage
+          build-contexts: kernel=./kernel
+          target: chunked
+          build-args: |
+            BASE=quay.io/fedora-ostree-desktops/${{ matrix.base }}:${{ env.FEDORA }}
+            RECHUNKER=quay.io/fedora/fedora-bootc:${{ env.FEDORA }}
+            VARIANT=${{ env.VARIANT }}
+            VERSION=${{ steps.out.outputs.version }}
+            REPO_URL=${{ env.REPO_URL }}
+          provenance: false
+          sbom: false
+          outputs: type=tar,dest=${{ runner.temp }}/image.tar
+      - uses: ./.github/actions/container-smoke
+        with:
+          variant: ${{ env.VARIANT }}
+          keep-archive: true
+      # One architecture, so plain tags rather than a manifest list; skopeo
+      # pushes the OCI archive, as in Build 16k.
+      - uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKER_HUB_USER }}
+          password: ${{ secrets.DOCKER_HUB_PAT }}
+      - name: Push
+        env:
+          DEFAULT: 64k-${{ matrix.variant }}
+          VERSION: ${{ steps.out.outputs.version }}
+        run: |
+          for tag in "$VARIANT" "$VARIANT-$VERSION" "$DEFAULT" "$DEFAULT-$VERSION"; do
+            skopeo copy --retry-times 3 "oci-archive:$RUNNER_TEMP/image.tar" "docker://$IMAGE:$tag"
+          done
