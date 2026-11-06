@@ -15,7 +15,8 @@
 #     the same images, with a 16 KiB-page kernel swapped in by build.sh
 #   64k-fedora45-X, X as above (and 64k-X for the plain name)
 #     the same, with a 64 KiB-page kernel built from Fedora's source:
-#     KERNEL=kernel64k builds it (hours), KERNEL=<image> takes a built one
+#     KERNEL=kernel64k builds it here (hours); --build-context kernel=<dir>
+#     takes the RPMs it built, as Build 64k does
 # REPO_URL is the project's home: the OS identity files point at it and the
 # logo is downloaded from its release assets. VERSION is the version bootc
 # status shows.
