@@ -348,10 +348,22 @@ jobs:
           VARIANT: ${{ matrix.variant }}
           TAG: ${{ needs.setup.outputs.tag }}
         run: |
+          # Docker Hub answers 502 now and then (a push died on a blob HEAD).
+          # Pushing again skips what arrived, and imagetools create is idempotent.
+          retry() {
+            local i delay=1
+            for i in 1 2 3 4 5 6 7 8; do
+              "$@" && return
+              echo "${*:1:2} failed ($i/8)" >&2
+              [ "$i" -lt 8 ] && sleep $delay
+              delay=$((delay * 2))
+            done
+            return 1
+          }
           for arch in X64:x86_64 ARM64:aarch64; do
             docker load -i "image-$VARIANT-${arch%:*}/image.tar"
             docker tag "agenticlinux:$VARIANT" "$IMAGE:$VARIANT-$TAG-${arch#*:}"
-            docker push "$IMAGE:$VARIANT-$TAG-${arch#*:}"
+            retry docker push "$IMAGE:$VARIANT-$TAG-${arch#*:}"
             docker rmi "agenticlinux:$VARIANT" "$IMAGE:$VARIANT-$TAG-${arch#*:}"
           done
           # The default release's variants are also the plain desktop name:
@@ -361,7 +373,7 @@ jobs:
           if [ "$default" != "$VARIANT" ]; then
             tags+=(-t "$IMAGE:$default" -t "$IMAGE:$default-$TAG")
           fi
-          docker buildx imagetools create "${tags[@]}" \
+          retry docker buildx imagetools create "${tags[@]}" \
             "$IMAGE:$VARIANT-$TAG-x86_64" "$IMAGE:$VARIANT-$TAG-aarch64"
 
   # GitHub Releases answers 500 now and then (an ISO upload has failed with
