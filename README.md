@@ -93,6 +93,19 @@ Silicon Macs (see [16k kernels](#16k-kernels)):
 | Budgie     | `16k-budgie`, `16k-fedora45-budgie` |
 | no desktop | `16k-base`, `16k-fedora45-base`     |
 
+The `64k-` variants are the same with a 64 KiB-page kernel, for the NVIDIA DGX
+Spark and other Arm servers (see [64k kernels](#64k-kernels)):
+
+| Desktop    | 64k, Fedora 45                      |
+|------------|-------------------------------------|
+| KDE Plasma | `64k-kde`, `64k-fedora45-kde`       |
+| GNOME      | `64k-gnome`, `64k-fedora45-gnome`   |
+| Sway       | `64k-sway`, `64k-fedora45-sway`     |
+| COSMIC     | `64k-cosmic`, `64k-fedora45-cosmic` |
+| Xfce       | `64k-xfce`, `64k-fedora45-xfce`     |
+| Budgie     | `64k-budgie`, `64k-fedora45-budgie` |
+| no desktop | `64k-base`, `64k-fedora45-base`     |
+
 The variants carry the same packages on both distributions, so the list is
 what CentOS Stream 10, EPEL 10 and RPM Fusion have: GNOME and KDE Plasma are
 the desktops that exist there. CentOS Stream's kernel tracks the next RHEL
@@ -227,7 +240,7 @@ sudo systemctl enable --now bootc-fetch-apply-updates.timer
 ## 16k kernels
 
 The `16k-` variants are named for the kernel's page size, not the hardware, so other
-16 KiB machines (and a `64k-` variant) can follow. Each is the variant without the
+16 KiB machines can follow. Each is the variant without the
 prefix with its kernel swapped for `kernel-16k` and, for Apple Silicon, the
 [Asahi project](https://asahilinux.org/fedora/)'s platform packages (firmware,
 m1n1 and U-Boot updaters, Mesa, audio). The branding is AgenticLinux's, as for every
@@ -247,6 +260,37 @@ sudo bootc switch docker.io/ericcurtin044/agenticlinux:16k-kde
 (14 GB with no desktop), and `compress=zstd:1` halves that. There is no NVIDIA driver,
 CUDA or ROCm; the GPU is Apple's. CI builds and smoke-tests these in a container
 only, as it has no Apple hardware to boot.
+
+## 64k kernels
+
+The `64k-` variants are named for the kernel's page size too. Each is the variant
+without the prefix with its kernel swapped for one with 64 KiB pages, and the NVIDIA
+driver built for it. aarch64 only.
+
+Fedora has no 64k kernel (its `kernel.spec` turns the variant off), so CI builds one
+from Fedora's kernel source with [kernel64k.sh](kernel64k.sh): Fedora's aarch64
+configuration with the page-size options that Fedora's own RT 64k kernel has, and
+nothing else changed. It is built once per Fedora kernel version and kept as the
+image `kernel64k-fedora45-<version>`. Its modules are signed with a key made for the
+build, not Fedora's, so Secure Boot has to be off, as for the NVIDIA module on every
+image.
+
+From a running AgenticLinux, or any bootc system, switch and reboot:
+
+```sh
+sudo bootc switch docker.io/ericcurtin044/agenticlinux:64k-kde
+```
+
+`/home` and `/var` carry over and the previous image stays as the rollback. To build
+one yourself, name the kernel stage, which takes hours (or an image of it from CI):
+
+```sh
+docker build --target chunked --build-arg VARIANT=64k-kde --build-arg KERNEL=kernel64k \
+  --build-arg BASE=quay.io/fedora-ostree-desktops/kinoite:45 -o type=tar,dest=image.tar .
+```
+
+CI builds and smoke-tests these in a container only: no hosted runner has the
+hardware, or can boot an arm64 VM.
 
 ## GPUs
 
