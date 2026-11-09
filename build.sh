@@ -322,6 +322,16 @@ for p in "$NVIDIA" "$kdevel_pkg"; do
 done
 [ "$KPAGE" = 16k ] || nvidia-ctk runtime configure --runtime=docker
 
+# The driver package presets these on, but presets only apply at install, not
+# to an image built here, so they were left disabled. With
+# NVreg_PreserveVideoMemoryAllocations=1 (the power package sets it) the
+# driver wants nvidia-sleep.sh to have written to /proc/driver/nvidia/suspend
+# before the kernel suspends. On a DGX Spark with these disabled, the driver's
+# PM callback returned -5 (nv_pmops_suspend) and systemd-suspend.service failed.
+for u in nvidia-suspend nvidia-resume nvidia-hibernate nvidia-suspend-then-hibernate; do
+  if [ -e "/usr/lib/systemd/system/$u.service" ]; then systemctl enable "$u.service"; fi
+done
+
 # --- Agents -----------------------------------------------------------------
 # Upstream Node bundles its own SQLite; OpenClaw refuses the system SQLite the
 # distribution's Node links against (WAL corruption bug in 3.51.2).
@@ -676,6 +686,13 @@ fi
 
 # The second empties /tmp (it is /var/tmp) on shutdown, as the tmpfs it replaced
 systemctl enable docker.service agenticlinux-clean-var-tmp.service
+
+# systemd-gpt-auto-generator mounts the ESP on /efi when /boot is in use, as it
+# is on a machine without an fstab (bootc install to-existing-root), and
+# leaves it to efi.automount to create the directory. The root is read-only,
+# so the unit failed with "Failed to check directory /efi" and left the system
+# degraded. Ship the directory.
+mkdir -p /efi
 
 # The base images keep file capabilities (newuidmap's, which rootless podman
 # needs) in ostree's own metadata, which BuildKit does not apply, so the
