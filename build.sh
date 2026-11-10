@@ -612,19 +612,6 @@ for f in /usr/share/plasma/look-and-feel/org.fedoraproject.fedora*.desktop/metad
          -e 's/"Description": "[^"]*"/"Description": "AgenticLinux theme"/' "$f"
 done
 
-# The boot splash's watermark was the logo package's too, and it is baked into
-# the initramfs, so that is rebuilt the way the bootc images build it (their
-# dracut.conf.d already says hostonly=no).
-# (a 16k or 64k kernel has no initramfs yet, so it is built with or without a
-# splash)
-if [ -d /usr/share/plymouth/themes/spinner ]; then
-  install -m644 /tmp/logo/agenticlinux-logo-64.png /usr/share/plymouth/themes/spinner/watermark.png
-fi
-if [ -d /usr/share/plymouth/themes/spinner ] || [ -n "$KPAGE" ]; then
-  dracut --no-hostonly --kver "$KVER" --reproducible --add ostree --tmpdir /tmp -f /tmp/initramfs.img
-  install -m600 /tmp/initramfs.img "/usr/lib/modules/$KVER/initramfs.img"
-fi
-
 cat > /usr/lib/os-release <<EOF
 NAME="AgenticLinux"
 VERSION="${RELEASE} (${DESKTOP})"
@@ -653,6 +640,20 @@ done
 for f in /usr/lib/system-release-cpe /etc/system-release-cpe; do
   [ -f "$f" ] && [ ! -L "$f" ] && echo "cpe:/o:agenticlinux:agenticlinux:${RELEASE}" > "$f"
 done
+
+# The boot splash's watermark was the logo package's too, and it is baked into
+# the initramfs, so that is rebuilt the way the bootc images build it (their
+# dracut.conf.d already says hostonly=no). It runs after os-release is written:
+# dracut copies that into the initramfs, whose hostname default was Fedora's.
+# (a 16k or 64k kernel has no initramfs yet, so it is built with or without a
+# splash)
+if [ -d /usr/share/plymouth/themes/spinner ]; then
+  install -m644 /tmp/logo/agenticlinux-logo-64.png /usr/share/plymouth/themes/spinner/watermark.png
+fi
+if [ -d /usr/share/plymouth/themes/spinner ] || [ -n "$KPAGE" ]; then
+  dracut --no-hostonly --kver "$KVER" --reproducible --add ostree --tmpdir /tmp -f /tmp/initramfs.img
+  install -m600 /tmp/initramfs.img "/usr/lib/modules/$KVER/initramfs.img"
+fi
 
 # CentOS's image had no display manager until the group install. Presets
 # enable GDM and SDDM; Plasma's own login manager has none.
