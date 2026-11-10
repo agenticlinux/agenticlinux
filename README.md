@@ -180,7 +180,9 @@ sudo bootc switch docker.io/ericcurtin044/agenticlinux:kde
 
 The ISOs are named for the variant (`agenticlinux-kde-x86_64.iso`), and the
 default desktops' are Fedora 45. The Fedora 44 ones are
-`agenticlinux-fedora44-kde-x86_64.iso` and so on.
+`agenticlinux-fedora44-kde-x86_64.iso` and so on. The 16k and 64k ones
+(`agenticlinux-16k-kde-aarch64.iso`) are in the releases `16k-<version>` and
+`64k-<version>`, not the latest.
 
 The root filesystem (which holds `/var`, `/home` and `/root`) defaults to xfs
 for both `bootc install` and the ISO.
@@ -246,14 +248,16 @@ prefix with its kernel swapped for `kernel-16k` and, for Apple Silicon, the
 m1n1 and U-Boot updaters, Mesa, audio). The branding is AgenticLinux's, as for every
 variant. aarch64 only.
 
-There is no installer: the Asahi installer sets up m1n1 and U-Boot, so install an
-atomic Fedora Asahi Remix first
+There is no installer for Apple Silicon: the Asahi installer sets up m1n1 and U-Boot, so
+install an atomic Fedora Asahi Remix first
 ([guide](https://github.com/fedora-asahi-remix-atomic-desktops/images#how-to-use)),
 then switch:
 
 ```sh
 sudo bootc switch docker.io/ericcurtin044/agenticlinux:16k-kde
 ```
+
+In a VM or on an aarch64 machine with UEFI, install from the 16k ISO instead.
 
 `/home` and `/var` carry over and the previous image stays as the rollback, so check
 `btrfs filesystem usage /sysroot` first: the image adds about 15 GB for KDE Plasma
@@ -280,6 +284,9 @@ From a running AgenticLinux, or any bootc system, switch and reboot:
 ```sh
 sudo bootc switch docker.io/ericcurtin044/agenticlinux:64k-kde
 ```
+
+Or install from the 64k ISO (see [Install](#install)); the installer runs on 4 KiB pages
+and the installed system boots its 64k kernel.
 
 `/home` and `/var` carry over and the previous image stays as the rollback. To build
 one yourself, name the kernel stage, which takes hours:
