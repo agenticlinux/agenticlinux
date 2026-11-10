@@ -322,6 +322,25 @@ for p in "$NVIDIA" "$kdevel_pkg"; do
 done
 [ "$KPAGE" = 16k ] || nvidia-ctk runtime configure --runtime=docker
 
+# On a 64 KiB-page kernel python's ctypes (libffi) needs a memfd it can write,
+# map and execute, which SELinux denies tuned-ppd: it died with a MemoryError
+# at each boot. The 4 KiB and 16 KiB kernels did not hit it.
+if [ "$KPAGE" = 64k ]; then
+  cat > /tmp/agenticlinux64k.te <<'TE'
+module agenticlinux64k 1.0;
+require {
+  type tuned_ppd_t;
+  type tmpfs_t;
+  class file { execute map read write };
+}
+allow tuned_ppd_t tmpfs_t:file { execute map read write };
+TE
+  checkmodule -M -m -o /tmp/agenticlinux64k.mod /tmp/agenticlinux64k.te
+  semodule_package -o /tmp/agenticlinux64k.pp -m /tmp/agenticlinux64k.mod
+  semodule -i /tmp/agenticlinux64k.pp
+  rm -f /tmp/agenticlinux64k.*
+fi
+
 # --- Agents -----------------------------------------------------------------
 # Upstream Node bundles its own SQLite; OpenClaw refuses the system SQLite the
 # distribution's Node links against (WAL corruption bug in 3.51.2).
