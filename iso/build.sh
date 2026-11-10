@@ -41,6 +41,17 @@ cat > agenticlinux.ks <<KS
 ostreecontainer --url=${image} --transport=registry --no-signature-verification
 reboot
 KS
+# The installer asks for the user, so KDE's first-run wizard (Plasma Setup),
+# which would ask again, is done.
+case "$variant" in
+  *-kde) cat >> agenticlinux.ks <<'KS'
+
+%post
+touch /etc/plasma-setup-done
+%end
+KS
+  ;;
+esac
 
 # Anaconda auto-applies /images/updates.img from the media, copying it over
 # the installer's root. Used for three things:
