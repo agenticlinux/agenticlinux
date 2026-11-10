@@ -330,7 +330,23 @@ NODE=$(curl https://nodejs.org/dist/index.json |
 curl "https://nodejs.org/dist/${NODE}/node-${NODE}-linux-${NODE_ARCH}.tar.xz" |
   tar xJ -C /usr --strip-components=1 --no-same-owner \
     --exclude='*/CHANGELOG.md' --exclude='*/LICENSE' --exclude='*/README.md'
-npm install -g --prefix /usr @anthropic-ai/claude-code @openai/codex opencode-ai openclaw
+npm install -g --prefix /usr @anthropic-ai/claude-code @openai/codex openclaw
+
+# OpenCode 2 is on neither npm (opencode-ai is 1.x) nor GitHub's "latest": take
+# the newest stable tag with the CLI and desktop RPM uploaded. The x64
+# baseline CLI runs without AVX2.
+oc_url=https://github.com/anomalyco/opencode/releases
+oc_cli=opencode-linux-${NODE_ARCH/x64/x64-baseline}.tar.gz
+oc_rpm=opencode-desktop-linux-$(uname -m).rpm
+oc_tags=$(retry release_tags "$oc_url")
+for oc in $oc_tags; do
+  for f in $oc_cli $oc_rpm; do
+    command curl -fsIL --retry 5 -o /dev/null "$oc_url/download/$oc/$f" || continue 2
+  done
+  break
+done
+curl "$oc_url/download/$oc/$oc_cli" | tar xz -C /usr/bin --no-same-owner opencode
+/usr/bin/opencode --version
 
 curl -o /usr/bin/llmman \
   "https://github.com/llmmanorg/llmman/releases/latest/download/llmman-$(uname -m)-unknown-linux-gnu"
@@ -349,8 +365,7 @@ chmod 755 /usr/bin/herdr
 # and OpenCode. Claude's is a .deb only.
 curl -o /tmp/chatgpt.rpm \
   "https://persistent.oaistatic.com/codex-app-prod/linux/rpm/latest/chatgpt.$(uname -m).rpm"
-curl -o /tmp/opencode-desktop.rpm \
-  "https://github.com/anomalyco/opencode/releases/latest/download/opencode-desktop-linux-$(uname -m).rpm"
+curl -o /tmp/opencode-desktop.rpm "$oc_url/download/$oc/$oc_rpm"
 # OpenCode's RPM installs into /opt, which bootc keeps in the mutable /var
 # (there after the first install, never updated), so it moves under /usr.
 # Fedora's /opt is a dangling link; rpm needs its target to exist.
@@ -362,13 +377,10 @@ sed -i 's/^enabled=1/enabled=0/' /etc/yum.repos.d/chatgpt.repo
 mv /opt/OpenCode /usr/lib/opencode-desktop
 sed -i 's|/opt/OpenCode/|/usr/lib/opencode-desktop/|' \
   /usr/share/applications/opencode-desktop.desktop /usr/share/applications/ai.opencode.desktop.desktop
-# The %post's alternatives entry and the build-id links point into /opt too
-update-alternatives --remove ai.opencode.desktop /opt/OpenCode/ai.opencode.desktop || true
-ln -sfn ../lib/opencode-desktop/ai.opencode.desktop /usr/bin/ai.opencode.desktop
-ln -sfn ../lib/opencode-desktop/ai.opencode.desktop /usr/bin/opencode-desktop
-find /usr/lib/.build-id -lname '*/opt/OpenCode/*' | while read -r l; do
-  ln -sfn "$(readlink "$l" | sed 's|/opt/OpenCode/|/usr/lib/opencode-desktop/|')" "$l"
-done
+# The %post's alternatives entry points into /opt too
+update-alternatives --remove ai.opencode /opt/OpenCode/ai.opencode || true
+ln -sfn ../lib/opencode-desktop/ai.opencode /usr/bin/ai.opencode
+ln -sfn ../lib/opencode-desktop/ai.opencode /usr/bin/opencode-desktop
 
 # Goose: the desktop app's RPM, from the newest release that has this
 # architecture's uploaded. Releases are published before their assets are (the

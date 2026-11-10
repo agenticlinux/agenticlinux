@@ -10,6 +10,8 @@ finish() {
   [ "$1" -eq 0 ] && return
   # Which runtime the daemon picked and why a load failed
   tail -n 40 "$llmman_data/serve.log" 2>/dev/null || true
+  systemctl --failed --no-pager || true
+  journalctl -u docker -u docker.socket -u containerd --no-pager -n 40 || true
   echo SMOKE FAIL
 }
 trap 'finish $?' EXIT
@@ -90,6 +92,8 @@ else
   # /boot is an idle-unmounting automount that bootc itself cannot retrigger
   # (bootc-dev/bootc#2402); any other access remounts it
   ls /boot >/dev/null
+  # multi-user.target starts without error when docker.service failed
+  patiently systemctl start docker
   patiently docker pull hello-world
   docker run --rm hello-world
   patiently as_test "podman pull quay.io/podman/hello"
@@ -139,7 +143,7 @@ while read -r bin entry exe; do
   fi
 done <<EOF
 chatgpt              chatgpt               lib/chatgpt/ChatGPT
-opencode-desktop     ai.opencode.desktop   lib/opencode-desktop/ai.opencode.desktop
+opencode-desktop     ai.opencode.desktop   lib/opencode-desktop/ai.opencode
 goose-desktop        Goose                 lib/Goose/Goose
 google-chrome-stable google-chrome         lib/google-chrome/chrome
 codexbar-linux       com.steipete.CodexBar bin/codexbar-linux
