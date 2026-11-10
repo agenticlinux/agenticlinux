@@ -46,7 +46,7 @@ jobs:
           key: kernel64k-${{ steps.nvr.outputs.nvr }}-${{ hashFiles('kernel64k.sh') }}
       - uses: ./.github/actions/free-disk-space
         if: steps.cache.outputs.cache-hit != 'true'
-      - uses: docker/setup-buildx-action@v3
+      - uses: ./.github/actions/setup-buildx
         if: steps.cache.outputs.cache-hit != 'true'
       - uses: docker/build-push-action@v7
         if: steps.cache.outputs.cache-hit != 'true'
@@ -93,7 +93,7 @@ jobs:
           name: kernel64k
           path: kernel
       - uses: ./.github/actions/free-disk-space
-      - uses: docker/setup-buildx-action@v3
+      - uses: ./.github/actions/setup-buildx
       - uses: docker/build-push-action@v7
         with:
           context: .

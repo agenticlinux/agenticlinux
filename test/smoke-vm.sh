@@ -92,8 +92,11 @@ else
   # /boot is an idle-unmounting automount that bootc itself cannot retrigger
   # (bootc-dev/bootc#2402); any other access remounts it
   ls /boot >/dev/null
-  # multi-user.target starts without error when docker.service failed
-  patiently systemctl start docker
+  # multi-user.target starts without error when docker.service failed, and
+  # dockerd has failed to start at boot (Restart=always, but only three tries
+  # in 60 s) and left the service and its socket failed for good: the socket
+  # no longer activates it, and a start is refused until the failure is reset.
+  patiently bash -c 'systemctl reset-failed docker.service docker.socket; systemctl start docker'
   patiently docker pull hello-world
   docker run --rm hello-world
   patiently as_test "podman pull quay.io/podman/hello"

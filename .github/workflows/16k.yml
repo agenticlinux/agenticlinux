@@ -46,7 +46,7 @@ jobs:
           echo "VARIANT=16k-fedora$FEDORA-${{ matrix.variant }}" >> "$GITHUB_ENV"
           echo "version=$FEDORA.$(date -u +%Y%m%d).$GITHUB_RUN_NUMBER" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/free-disk-space
-      - uses: docker/setup-buildx-action@v3
+      - uses: ./.github/actions/setup-buildx
       - uses: docker/build-push-action@v7
         with:
           context: .
