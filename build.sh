@@ -205,6 +205,11 @@ esac
 # CentOS: EPEL for the desktops beyond GNOME and most of the tools, CRB for
 # what EPEL builds against
 if [ "$DISTRO" = centos ]; then
+  # The image's nftables (1.1.7-1) is in no repository yet. The kde-desktop
+  # group's python3-nftables needs the repositories' own, and the group install
+  # failed on "cannot install both nftables" in all 12 tries. Take the
+  # repositories' version first; a no-op once they have the image's.
+  dnf -y distro-sync nftables
   dnf -y install epel-release
   crb enable
   # Cisco's openh264 build, as fedora-cisco-openh264 on Fedora; EPEL 10's
