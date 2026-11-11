@@ -1,0 +1,31 @@
+name: Upload artifact
+description: >-
+  actions/upload-artifact, tried twice: the artifact service now and then
+  answers "The server is busy". Overwrites, so a re-run job can upload again.
+inputs:
+  name:
+    required: true
+  path:
+    required: true
+  retention-days:
+    default: "1"
+runs:
+  using: composite
+  steps:
+    - id: first
+      continue-on-error: true
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ inputs.path }}
+        retention-days: ${{ inputs.retention-days }}
+        compression-level: 0
+        overwrite: true
+    - if: steps.first.outcome == 'failure'
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ inputs.name }}
+        path: ${{ inputs.path }}
+        retention-days: ${{ inputs.retention-days }}
+        compression-level: 0
+        overwrite: true

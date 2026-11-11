@@ -24,7 +24,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RUN: ${{ github.event.workflow_run.id }}
           ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
-          TRANSIENT: lost communication with the server|received a shutdown signal|exceeded the maximum execution time
+          TRANSIENT: lost communication with the server|received a shutdown signal|exceeded the maximum execution time|The server is busy
         run: |
           jobs=$(gh api --paginate "repos/$GH_REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" \
             --jq '.jobs[] | select(.conclusion | IN("failure", "cancelled", "timed_out")) | "\(.id)\t\(.name)"')

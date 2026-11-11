@@ -107,16 +107,12 @@ jobs:
           outputs: type=tar,dest=${{ runner.temp }}/image.tar
       # The checksum lets the push job tell a lost download from a bad image
       - run: cd "$RUNNER_TEMP" && sha256sum image.tar > image.tar.sha256
-      # overwrite: so a re-run job (retry.yml) can upload again
-      - uses: actions/upload-artifact@v7
+      - uses: ./.github/actions/upload
         with:
           name: image-${{ matrix.variant }}-${{ runner.arch }}
           path: |
             ${{ runner.temp }}/image.tar
             ${{ runner.temp }}/image.tar.sha256
-          compression-level: 0
-          retention-days: 1
-          overwrite: true
       - uses: ./.github/actions/container-smoke
         with:
           variant: ${{ matrix.variant }}
@@ -245,15 +241,12 @@ jobs:
           mv vm.qcow2 disk.qcow2
           sha256sum disk.qcow2 > disk.qcow2.sha256
       - if: runner.arch == 'X64'
-        uses: actions/upload-artifact@v7
+        uses: ./.github/actions/upload
         with:
           name: vm-${{ matrix.variant }}
           path: |
             disk.qcow2
             disk.qcow2.sha256
-          compression-level: 0
-          retention-days: 1
-          overwrite: true
 
   # Boot the same disks on the other hosts with hardware virtualization.
   # Budget: artifact download, one retried boot hang, smoke.sh's own timeout.
