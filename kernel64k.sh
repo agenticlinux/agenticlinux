@@ -85,12 +85,13 @@ done
 SH
 chmod +x /usr/local/bin/sha512hmac
 
-# Only the 64k kernel: no debug or stock kernel, tools or docs.
+# Only the 64k kernel: no debug or stock kernel, tools or docs. Debuginfo stays
+# on: without it kernel.spec drops CONFIG_DEBUG_INFO_BTF, which systemd needs.
 rpmbuild -bb SPECS/kernel.spec --target aarch64 \
-  --without stock --without debug --without debuginfo --without doc \
+  --without stock --without debug --without doc \
   --without headers --without cross_headers --without perf --without tools \
   --without bpftool --without selftests --without efiuki --without configchecks \
   --without ipaclones
 mkdir -p /out
-cp RPMS/aarch64/kernel-64k-*.rpm /out/
+find RPMS/aarch64 -name 'kernel-64k-*.rpm' ! -name '*debuginfo*' -exec cp -t /out {} +
 ls -l /out
