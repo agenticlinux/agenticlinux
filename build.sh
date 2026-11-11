@@ -291,6 +291,22 @@ if [ "$(uname -m)" = x86_64 ]; then
   dnf -y install $rocm
 fi
 
+# Kata Containers (Fedora only; EPEL has none). Its %post builds the guest
+# initrd for the running kernel, which a build has not got, so it goes in
+# without scriptlets (like akmod-nvidia, below) after the dependencies that
+# need theirs, and kata-osbuilder-generate.service builds the initrd at boot.
+# The packaged configuration names a vmlinux.container that osbuilder never
+# creates (it links vmlinuz.container) and, on aarch64, firmware in aavmf/
+# where edk2-aarch64 has AAVMF/: /etc gets a corrected copy.
+if [ "$DISTRO" = fedora ]; then
+  dnf -y install binutils dbus-daemon
+  dnf -y install --setopt=tsflags=noscripts kata-containers
+  ln -sf ../kata-osbuilder-generate.service /usr/lib/systemd/system/multi-user.target.wants/
+  install -d /etc/kata-containers
+  sed -e 's|/vmlinux\.container|/vmlinuz.container|' -e 's|/usr/share/aavmf/|/usr/share/AAVMF/|' \
+    /usr/share/kata-containers/defaults/configuration.toml > /etc/kata-containers/configuration.toml
+fi
+
 # /usr is read-only on a bootc host, so build the NVIDIA kernel module now.
 # akmod-nvidia's %post only works in rpm-ostree's sandbox; skip it and run
 # akmods ourselves, then drop the build-time packages. akmods exits 0 on a
@@ -364,6 +380,26 @@ curl -o /usr/bin/herdr \
   "https://github.com/herdrdev/herdr/releases/latest/download/herdr-linux-$(uname -m)"
 chmod 755 /usr/bin/herdr
 /usr/bin/herdr --version
+
+# OpenShell: the CLI, gateway (a user unit, left disabled) and policy prover,
+# from the newest release with all three RPMs for this architecture, checked
+# against its checksum file. Built on Fedora, but CentOS takes them too.
+os_url=https://github.com/NVIDIA/OpenShell/releases
+os_tags=$(retry release_tags "$os_url")
+mkdir /tmp/openshell
+(
+  cd /tmp/openshell
+  for os in $os_tags; do
+    command curl -fsL --retry 5 -o sums "$os_url/download/$os/openshell-checksums-sha256.txt" || continue
+    grep -E " openshell(-gateway|-prover)?-[0-9][^ ]*\.$(uname -m)\.rpm$" sums > rpms.sums || true
+    [ "$(wc -l < rpms.sums)" = 3 ] && break
+  done
+  [ "$(wc -l < rpms.sums)" = 3 ]
+  for f in $(awk '{print $2}' rpms.sums); do curl -O "$os_url/download/$os/$f"; done
+  sha256sum -c rpms.sums
+  dnf -y install /tmp/openshell/*.rpm
+)
+/usr/bin/openshell --version
 
 # --- Desktop apps -----------------------------------------------------------
 # The agents' desktop apps that come as RPMs: ChatGPT (Codex is part of it)

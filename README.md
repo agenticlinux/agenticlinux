@@ -14,8 +14,11 @@ apps, Google Chrome,
 [llmman](https://github.com/llmmanorg/llmman) to run models locally or connect
 any agent to any provider, [Docker Engine](https://docs.docker.com/engine/)
 (rootful and [rootless](https://docs.docker.com/engine/security/rootless/)) and
-[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/) to run agents in
-isolation, [QEMU](https://www.qemu.org) with KVM for full virtual machines,
+[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/),
+[OpenShell](https://github.com/NVIDIA/OpenShell) and
+[Kata Containers](https://katacontainers.io) to run agents in isolation,
+[QEMU](https://www.qemu.org) with KVM for full virtual machines,
+[nvkectl](https://docs.nvidia.com/nvke/) to run GPU Kubernetes clusters,
 GPU runtimes for Vulkan, ROCm and NVIDIA/CUDA, and a full developer
 toolset.
 
@@ -108,8 +111,8 @@ Spark and other Arm servers (see [64k kernels](#64k-kernels)):
 
 The variants carry the same packages on both distributions, so the list is
 what CentOS Stream 10, EPEL 10 and RPM Fusion have: GNOME and KDE Plasma are
-the desktops that exist there. CentOS Stream's kernel tracks the next RHEL
-10 minor release.
+the desktops that exist there, and Kata Containers is on Fedora only. CentOS
+Stream's kernel tracks the next RHEL 10 minor release.
 
 ## Signing in to the agents
 
@@ -165,6 +168,35 @@ Two daemons, with separate images and containers:
   This starts it as a systemd user service and switches the CLI to its
   `rootless` context. Switch back with `docker context use default`. To
   keep it running after logout, run `sudo loginctl enable-linger "$USER"`.
+
+## Sandboxes
+
+- **Docker Sandboxes** (`sbx`) runs an agent in a microVM with its own Docker
+  daemon and network, sharing only the project directory. Sign in with
+  `sbx login`, then `sbx run claude` in a project directory. See Docker's
+  [documentation](https://docs.docker.com/ai/sandboxes/).
+- **OpenShell** runs an agent under a policy for its files, system calls and
+  network access. The gateway is a systemd user service, off until you start
+  it:
+
+  ```sh
+  systemctl --user enable --now openshell-gateway
+  openshell gateway add --local https://127.0.0.1:17670
+  openshell sandbox create -- claude
+  ```
+
+  For rootless Podman also run `systemctl --user enable --now podman.socket`.
+  See OpenShell's [documentation](https://docs.nvidia.com/openshell/).
+- **Kata Containers** (Fedora variants) runs each container in its own
+  lightweight VM, through `containerd-shim-kata-v2` for containerd, CRI-O and
+  Kubernetes (not set up for Docker). Its initrd is built at boot, for the
+  running kernel. `kata-runtime check` tells whether the machine can run it.
+- **nvkectl** is the CLI of [NVIDIA Kubernetes Engine](https://docs.nvidia.com/nvke/)
+  (a preview), which creates GPU Kubernetes clusters on bare metal. NVIDIA
+  publishes no binary, so the image builds the newest release. The tools it
+  drives (`nerdctl`, `kind`, `helm`, `kubectl`, `clusterctl`) are not
+  installed; see its
+  [installation guide](https://docs.nvidia.com/nvke/documentation/install-nvke/plan-your-installation).
 
 ## Install
 
@@ -320,7 +352,9 @@ hardware, or can boot an arm64 VM.
 ## Building
 
 [packages.txt](packages.txt) lists the RPMs, [build.sh](build.sh) does the
-rest, and `usr/` is copied over the image. Each variant's base image is at the
+rest, and `usr/` is copied over the image. `nvkectl` is built by the
+Dockerfile's `nvkectl` stage from the newest NVKE release tag; pin another with
+`--build-arg NVKE_VERSION=v0.23.1`. Each variant's base image is at the
 top of the [Dockerfile](Dockerfile); `VARIANT` must match its distribution and, for Fedora, its release. The
 published image is the `chunked` target, an OCI layout that Docker only loads
 with the containerd image store. Enable it in `/etc/docker/daemon.json`:

@@ -97,6 +97,13 @@ else
   # in 60 s) and left the service and its socket failed for good: the socket
   # no longer activates it, and a start is refused until the failure is reset.
   patiently bash -c 'systemctl reset-failed docker.service docker.socket; systemctl start docker'
+  # Kata: the initrd built at boot, and a configuration whose files exist
+  if rpm -q kata-containers >/dev/null; then
+    systemctl start kata-osbuilder-generate.service
+    test -s /var/cache/kata-containers/kata-containers-initrd.img
+    modprobe vhost_vsock
+    kata-runtime env >/dev/null
+  fi
   patiently docker pull hello-world
   docker run --rm hello-world
   patiently as_test "podman pull quay.io/podman/hello"
@@ -131,9 +138,11 @@ fi
 bootc status
 for c in "sbx version" "llmman --version" "herdr --version" "opencode --version" \
          "codex --version" "claude --version" "openclaw --version" "goose --version" \
-         "codexbar --version" "qemu-img --version"; do
+         "codexbar --version" "qemu-img --version" "openshell --version" "nvkectl version"; do
   retry as_test "$c"
 done
+# Kata Containers is Fedora's package; CentOS has none
+if rpm -q kata-containers >/dev/null; then retry as_test "kata-runtime --version"; fi
 
 # The desktop apps: launcher, menu entry, and every shared library of the
 # binary resolved; without a display that is as far as a check can go.
