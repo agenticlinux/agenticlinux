@@ -127,8 +127,12 @@ jobs:
         # on qemu's gstreamer Recommends). Refresh the lists first; skip the
         # Recommends, which are audio and GUI, so only what the tests use is
         # fetched: qemu, its tools and the OVMF firmware smoke.sh boots with.
+        # Azure's resolver has timed out on *.ubuntu.com for hours; fall back
+        # to a public one then, or apt spends 47 minutes in timeouts.
         run: |
           for i in 1 2 3; do
+            timeout 30 getent hosts archive.ubuntu.com >/dev/null ||
+              sudo resolvectl dns eth0 1.1.1.1 8.8.8.8
             sudo apt-get update &&
               sudo apt-get install -y --no-install-recommends qemu-system-x86 qemu-utils ovmf && break
             [ "$i" -lt 3 ] || exit 1
