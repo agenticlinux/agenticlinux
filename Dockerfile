@@ -1,5 +1,6 @@
-# AgenticLinux: a bootc desktop with Docker Engine, Docker Sandboxes, llmman,
-# GPU runtimes (Vulkan, ROCm, NVIDIA/CUDA) and a developer toolset preinstalled.
+# AgenticLinux: a bootc desktop with Docker Engine, Docker Sandboxes, OpenShell,
+# Kata Containers, llmman, nvkectl, GPU runtimes (Vulkan, ROCm, NVIDIA/CUDA) and
+# a developer toolset preinstalled.
 #
 # BASE is the upstream bootc image a variant is built from and VARIANT the
 # variant's name (the public tag). The pairs, also in the workflow's table:
@@ -46,20 +47,30 @@ COPY --from=kernel64k-build /out/ /
 FROM ${KERNEL} AS kernel
 
 # bootguard (automatic rollback of a failed update) is built on the variant's own
-# base, so it links against the distribution it runs on. dnf gets the patience
-# build.sh gives it, including fresh metadata for every retry (stale metadata
-# fails the same way each time); cargo has its own retries for crates.io. HOME
-# is /tmp as in build.sh: /root is a dangling symlink in these images, so cargo
-# cannot use it.
+# base, so it links against the distribution it runs on. cargo has its own
+# retries for crates.io. HOME is /tmp as in build.sh: /root is a dangling
+# symlink in these images, so cargo cannot use it.
 FROM ${BASE} AS bootguard
-RUN for i in $(seq 12); do dnf install -y cargo && break; \
-      [ "$i" -lt 12 ] || exit 1; echo "dnf failed, retrying in 20 s ($i/12)" >&2; \
-      dnf clean metadata >&2; sleep 20; \
-    done
+RUN --mount=type=bind,source=dnf-install.sh,target=/dnf-install.sh /dnf-install.sh cargo
 ENV HOME=/tmp CARGO_NET_RETRY=12
 COPY bootguard/Cargo.toml bootguard/Cargo.lock /src/
 COPY bootguard/src /src/src
 RUN cd /src && cargo test --locked && cargo build --release --locked
+
+# nvkectl, the CLI of NVIDIA Kubernetes Engine: upstream publishes no binary,
+# so this builds the newest release tag (NVKE_VERSION pins one), static, for
+# every variant. Go fetches the toolchain go.mod needs when Fedora's is older;
+# fetching is what fails, so the whole build is retried.
+FROM quay.io/fedora/fedora:${FEDORA} AS nvkectl
+ARG NVKE_VERSION=
+RUN --mount=type=bind,source=dnf-install.sh,target=/dnf-install.sh /dnf-install.sh golang git-core make
+RUN for i in $(seq 12); do rm -rf /src; \
+      v=${NVKE_VERSION:-$(git ls-remote --tags --refs --sort=-v:refname https://github.com/dsx-ai-factory/nvke.git | \
+        sed -n 's|.*refs/tags/\(v[0-9.]*\)$|\1|p' | head -n 1)}; \
+      [ -n "$v" ] && git clone --depth 1 --branch "$v" https://github.com/dsx-ai-factory/nvke.git /src && \
+        make -C /src/cli build && break; \
+      [ "$i" -lt 12 ] || exit 1; echo "nvkectl build failed, retrying in 20 s ($i/12)" >&2; sleep 20; \
+    done
 
 FROM ${BASE} AS image
 ARG VARIANT=base
@@ -71,6 +82,7 @@ COPY packages.txt build.sh /tmp/
 RUN --mount=type=bind,from=kernel,target=/run/kernel VARIANT="$VARIANT" REPO_URL="$REPO_URL" /tmp/build.sh
 
 COPY --from=bootguard /src/target/release/agenticlinux-bootguard /usr/bin/agenticlinux-bootguard
+COPY --from=nvkectl /src/cli/bin/nvkectl /usr/bin/nvkectl
 COPY bootguard/dist /
 RUN systemctl enable agenticlinux-bootguard-boot.service \
                      agenticlinux-bootguard-check.service \
