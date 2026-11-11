@@ -6,7 +6,7 @@ name: Retry
 # kind of failure; anything else stays red.
 on:
   workflow_run:
-    workflows: [Build]
+    workflows: [Build, Build 16k, Build 64k]
     types: [completed]
 
 jobs:
@@ -24,17 +24,19 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RUN: ${{ github.event.workflow_run.id }}
           ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
-          TRANSIENT: lost communication with the server|received a shutdown signal|exceeded the maximum execution time|The server is busy
+          WORKFLOW: ${{ github.event.workflow_run.workflow_id }}
+          TRANSIENT: lost communication with the server|received a shutdown signal|exceeded the maximum execution time|The server is busy|Resource not accessible by integration
         run: |
           jobs=$(gh api --paginate "repos/$GH_REPO/actions/runs/$RUN/attempts/$ATTEMPT/jobs?per_page=100" \
             --jq '.jobs[] | select(.conclusion | IN("failure", "cancelled", "timed_out")) | "\(.id)\t\(.name)"')
           [ -n "$jobs" ] || exit 0
           # Every failed job must have failed only by losing its runner or
           # timing out. Every cancelled job also says "The operation was
-          # canceled."; ignore it, the message left is the reason.
+          # canceled." and a failed script step "Process completed with exit
+          # code N."; ignore them, the message left is the reason.
           while IFS=$'\t' read -r id name; do
             msgs=$(gh api --paginate "repos/$GH_REPO/check-runs/$id/annotations?per_page=100" \
-              --jq '.[] | select(.annotation_level == "failure") | .message | gsub("\n"; " ") | select(. != "The operation was canceled.")')
+              --jq '.[] | select(.annotation_level == "failure") | .message | gsub("\n"; " ") | select(. != "The operation was canceled." and (test("^Process completed with exit code [0-9]+\\.$") | not))')
             echo "$name: ${msgs:-no failure annotation}"
             if [ -z "$msgs" ] || grep -vqE "$TRANSIENT" <<<"$msgs"; then
               echo "not a runner problem, not retrying"
@@ -42,6 +44,6 @@ jobs:
             fi
           done <<<"$jobs"
           # Build's concurrency group would cancel a newer run for this re-run
-          latest=$(gh run list --workflow build.yml --limit 1 --json databaseId --jq '.[0].databaseId')
+          latest=$(gh run list --workflow "$WORKFLOW" --limit 1 --json databaseId --jq '.[0].databaseId')
           [ "$latest" = "$RUN" ] || { echo "superseded by run $latest"; exit 0; }
           gh run rerun "$RUN" --failed
