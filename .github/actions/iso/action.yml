@@ -24,12 +24,16 @@ runs:
         docker run --rm -v "$PWD:/w" -w /w -e REPO_URL "fedora:$FEDORA" \
           iso/build.sh "$IMAGE:$VARIANT-$VERSION" "$VARIANT" "/w/$iso"
         sha256sum "$iso" > "$iso.sha256"
-        # The variants of a run share the release: create it only if missing
-        for i in $(seq 5); do
-          { gh release view "$release" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+        # The variants share the release: create it only if missing. Patient,
+        # GitHub's outages answer 403 for half an hour; the last error is the
+        # annotation retry.yml reads.
+        n=12
+        for i in $(seq $n); do
+          out=$({ gh release view "$release" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
             gh release create "$release" --repo "$GITHUB_REPOSITORY" --latest=false \
-              --target "$GITHUB_SHA" --title "$release" --notes "Network installer ISOs."; } &&
-            gh release upload "$release" --repo "$GITHUB_REPOSITORY" --clobber "$iso" "$iso.sha256" && break
-          [ "$i" -lt 5 ] || exit 1
+              --target "$GITHUB_SHA" --title "$release" --notes "Network installer ISOs."; } 2>&1 &&
+            gh release upload "$release" --repo "$GITHUB_REPOSITORY" --clobber "$iso" "$iso.sha256" 2>&1) && break
+          echo "$out"
+          [ "$i" -lt "$n" ] || { echo "::error::$(tail -n1 <<<"$out")"; exit 1; }
           sleep 60
         done
