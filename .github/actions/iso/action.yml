@@ -1,0 +1,35 @@
+name: Installer ISO
+description: >-
+  Build the ISO of the job's $IMAGE:$VARIANT-<version> with iso/build.sh and
+  upload it to the release <page size>-<version>, created if missing.
+inputs:
+  name:
+    description: The ISO's name, agenticlinux-<name>-<arch>.iso, such as 16k-kde
+    required: true
+  version:
+    description: The image's version
+    required: true
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        NAME: ${{ inputs.name }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        iso="agenticlinux-$NAME-$(uname -m).iso"
+        release="${NAME%%-*}-$VERSION"
+        for i in $(seq 12); do docker pull "fedora:$FEDORA" && break || sleep 20; done
+        docker run --rm -v "$PWD:/w" -w /w -e REPO_URL "fedora:$FEDORA" \
+          iso/build.sh "$IMAGE:$VARIANT-$VERSION" "$VARIANT" "/w/$iso"
+        sha256sum "$iso" > "$iso.sha256"
+        # The variants of a run share the release: create it only if missing
+        for i in $(seq 5); do
+          { gh release view "$release" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
+            gh release create "$release" --repo "$GITHUB_REPOSITORY" --latest=false \
+              --target "$GITHUB_SHA" --title "$release" --notes "Network installer ISOs."; } &&
+            gh release upload "$release" --repo "$GITHUB_REPOSITORY" --clobber "$iso" "$iso.sha256" && break
+          [ "$i" -lt 5 ] || exit 1
+          sleep 60
+        done

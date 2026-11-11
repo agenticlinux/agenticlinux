@@ -38,6 +38,8 @@ jobs:
           - {variant: base, base: base-atomic}
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 240
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v7
       - name: Name and version
@@ -79,3 +81,7 @@ jobs:
           for tag in "$VARIANT" "$VARIANT-$VERSION" "$DEFAULT" "$DEFAULT-$VERSION"; do
             skopeo copy --retry-times 3 "oci-archive:$RUNNER_TEMP/image.tar" "docker://$IMAGE:$tag"
           done
+      - uses: ./.github/actions/iso
+        with:
+          name: 16k-${{ matrix.variant }}
+          version: ${{ steps.out.outputs.version }}
