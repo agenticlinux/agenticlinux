@@ -1,0 +1,18 @@
+name: Set up Buildx
+description: >-
+  docker/setup-buildx-action, with the BuildKit image pulled first, patiently:
+  the action pulls it once, from Docker Hub, and fails the job when that does
+  ("network is unreachable", "failed to fetch oauth token"). The action pulls
+  only an image that is not already there.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        for i in 1 2 3 4 5 6; do
+          docker pull moby/buildkit:buildx-stable-1 && exit 0
+          echo "attempt $i of 6 failed, retrying in $((i * 10)) s"
+          sleep $((i * 10))
+        done
+        # Leave the action its own try, and its own error
+    - uses: docker/setup-buildx-action@v3
