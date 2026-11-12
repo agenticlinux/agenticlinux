@@ -281,7 +281,10 @@ dnf -y install $PACKAGES $KDEVEL /tmp/docker-sbx.rpm
 if rpm -q nano-default-editor >/dev/null; then
   dnf -y swap nano-default-editor vim-default-editor
 fi
-if rpm -q nano >/dev/null; then dnf -y remove nano; fi
+# Also no boot splash: plymouth goes too (nothing else requires it)
+unwanted=$(rpm -qa nano 'plymouth*' --qf '%{NAME}\n')
+# shellcheck disable=SC2086
+[ -z "$unwanted" ] || dnf -y remove $unwanted
 
 # ROCm is x86_64 only, in Fedora and in EPEL (which has no OpenCL packages)
 if [ "$(uname -m)" = x86_64 ]; then
@@ -694,19 +697,11 @@ for f in /usr/lib/system-release-cpe /etc/system-release-cpe; do
   [ -f "$f" ] && [ ! -L "$f" ] && echo "cpe:/o:agenticlinux:agenticlinux:${RELEASE}" > "$f"
 done
 
-# The boot splash's watermark was the logo package's too, and it is baked into
-# the initramfs, so that is rebuilt the way the bootc images build it (their
-# dracut.conf.d already says hostonly=no). It runs after os-release is written:
-# dracut copies that into the initramfs, whose hostname default was Fedora's.
-# (a 16k or 64k kernel has no initramfs yet, so it is built with or without a
-# splash)
-if [ -d /usr/share/plymouth/themes/spinner ]; then
-  install -m644 /tmp/logo/agenticlinux-logo-64.png /usr/share/plymouth/themes/spinner/watermark.png
-fi
-if [ -d /usr/share/plymouth/themes/spinner ] || [ -n "$KPAGE" ]; then
-  dracut --no-hostonly --kver "$KVER" --reproducible --add ostree --tmpdir /tmp -f /tmp/initramfs.img
-  install -m600 /tmp/initramfs.img "/usr/lib/modules/$KVER/initramfs.img"
-fi
+# Rebuild the initramfs the way the bootc images do (their dracut.conf.d
+# already says hostonly=no), after os-release is written: dracut copies it in.
+# A 16k or 64k kernel has no initramfs yet.
+dracut --no-hostonly --kver "$KVER" --reproducible --add ostree --tmpdir /tmp -f /tmp/initramfs.img
+install -m600 /tmp/initramfs.img "/usr/lib/modules/$KVER/initramfs.img"
 
 # CentOS's image had no display manager until the group install. Presets
 # enable GDM and SDDM; Plasma's own login manager has none.
