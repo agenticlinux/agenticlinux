@@ -138,7 +138,8 @@ fi
 bootc status
 for c in "sbx version" "llmman --version" "herdr --version" "opencode --version" \
          "codex --version" "claude --version" "openclaw --version" "goose --version" \
-         "codexbar --version" "qemu-img --version" "openshell --version" "nvkectl version"; do
+         "codexbar --version" "qemu-img --version" "openshell --version" "nvkectl version" \
+         "nerdctl --version" "kind version" "kubectl version --client" "helm version" "clusterctl version"; do
   retry as_test "$c"
 done
 # Kata Containers is Fedora's package; CentOS has none
