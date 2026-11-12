@@ -386,3 +386,4 @@ which covers what needs a real boot: Docker (rootful and rootless) and podman.
 on both architectures. A fork needs the `DOCKER_HUB_USER` variable, the
 `DOCKER_HUB_PAT` secret, and an `assets` release with the logo files, which
 `build.sh` downloads from `REPO_URL`.
+
