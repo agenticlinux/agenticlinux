@@ -24,10 +24,12 @@ env:
 
 # A newer push supersedes whatever is running: nothing is published until the
 # whole run is green, so a half-finished run of an older commit has no value,
-# and without this every push queues behind the previous run for hours.
+# and without this every push queues behind the previous run for hours. Not the
+# schedule: a run lasts about as long as its period, so it would cancel every
+# run before it finished. It waits instead.
 concurrency:
   group: build
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 # Both architectures are smoke-tested in containers; x86_64 additionally in
 # hardware-accelerated VMs. aarch64 is not boot-tested: no GitHub-hosted arm64
