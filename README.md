@@ -194,8 +194,8 @@ Two daemons, with separate images and containers:
 - **nvkectl** is the CLI of [NVIDIA Kubernetes Engine](https://docs.nvidia.com/nvke/)
   (a preview), which creates GPU Kubernetes clusters on bare metal. NVIDIA
   publishes no binary, so the image builds the newest release. The tools it
-  drives (`nerdctl`, `kind`, `helm`, `kubectl`, `clusterctl`) are not
-  installed; see its
+  drives (`nerdctl`, `kind`, `helm`, `kubectl`, `clusterctl`) are installed
+  too, at the versions NVKE pins; see its
   [installation guide](https://docs.nvidia.com/nvke/documentation/install-nvke/plan-your-installation).
 
 ## Install

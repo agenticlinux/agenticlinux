@@ -384,6 +384,46 @@ curl -o /usr/bin/herdr \
 chmod 755 /usr/bin/herdr
 /usr/bin/herdr --version
 
+# The tools nvkectl drives, at the versions NVKE pins, each checked against its
+# upstream's checksum (Cluster API has none: clusterctl's are here)
+nerdctl=2.4.2 kind=v0.32.0 kubectl=v1.36.6 helm=v4.2.4 clusterctl=v1.13.6
+case "$ARCH" in
+  amd64) clusterctl_sha=1e4019b8ef30fa13993716d28b9fec4072fee1e17ea2cc69cb7c8f232d9b8c2f ;;
+  arm64) clusterctl_sha=c3fe61fd44fa63d2efcee2a93432619527909b210a84cda7ee86eea1425de8c2 ;;
+esac
+# fetch URL SUMS_URL: download URL, then check it against its line in SUMS_URL
+fetch() { curl -O "$1"; curl "$2" | grep -F " ${1##*/}" | sha256sum -c -; }
+mkdir /tmp/k8s-tools
+(
+  cd /tmp/k8s-tools
+  u=https://github.com/containerd/nerdctl/releases/download/v$nerdctl
+  fetch "$u/nerdctl-$nerdctl-linux-$ARCH.tar.gz" "$u/SHA256SUMS"
+  tar xzf nerdctl-*.tar.gz -C /usr/bin --no-same-owner nerdctl
+
+  u=https://github.com/kubernetes-sigs/kind/releases/download/$kind/kind-linux-$ARCH
+  fetch "$u" "$u.sha256sum"
+  install -m755 "kind-linux-$ARCH" /usr/bin/kind
+
+  u=https://dl.k8s.io/release/$kubectl/bin/linux/$ARCH/kubectl
+  curl -O "$u"
+  echo "$(curl "$u.sha256")  kubectl" | sha256sum -c -
+  install -m755 kubectl /usr/bin/kubectl
+
+  u=https://get.helm.sh/helm-$helm-linux-$ARCH.tar.gz
+  fetch "$u" "$u.sha256sum"
+  tar xzf helm-*.tar.gz -C /usr/bin --no-same-owner --strip-components=1 "linux-$ARCH/helm"
+
+  curl -o clusterctl "https://github.com/kubernetes-sigs/cluster-api/releases/download/$clusterctl/clusterctl-linux-$ARCH"
+  echo "$clusterctl_sha  clusterctl" | sha256sum -c -
+  install -m755 clusterctl /usr/bin/clusterctl
+)
+rm -r /tmp/k8s-tools
+nerdctl --version
+kind version
+kubectl version --client
+helm version
+clusterctl version
+
 # OpenShell: the CLI, gateway (a user unit, left disabled) and policy prover,
 # from the newest release with all three RPMs for this architecture, checked
 # against its checksum file. Built on Fedora, but CentOS takes them too.
