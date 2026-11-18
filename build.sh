@@ -124,22 +124,17 @@ if [ "$KPAGE" = 16k ]; then
     "https://copr.fedorainfracloud.org/coprs/g/asahi/fedora-remix-branding/repo/fedora-${RELEASE}/group_asahi-fedora-remix-branding-fedora-${RELEASE}.repo"
   dnf -y install asahi-repos
   rm /etc/yum.repos.d/asahi-bootstrap.repo # asahi-repos has the same repository
-  # Its Mesa and U-Boot rank above Fedora's newer ones, but dnf ignores that for
-  # an installed package, hence the pins below
-  # asahi-repos 1-30 moved its files to /usr/share/dnf5/repos.d and Fedora 45
-  # has no Mesa repository, so edit whichever of them exist
-  find /etc/yum.repos.d /usr/share/dnf5/repos.d \
-    \( -name group_asahi-mesa.repo -o -name group_asahi-u-boot.repo \) \
-    -exec sed -i 's/^priority=.*/priority=5/' {} +
+  # U-Boot outranks Fedora's, but dnf ignores that for installed packages (pins below)
+  sed -i 's/^priority=.*/priority=5/' /usr/share/dnf5/repos.d/group_asahi-u-boot.repo
   remove_stock_kernel
   platform="asahi-platform-metapackage asahi-platform-metapackage-core asahi-platform-metapackage-mesa asahi-platform-metapackage-audio"
   [ "$desktop" != kde ] || platform="$platform asahi-platform-metapackage-plasma"
   # shellcheck disable=SC2086
   dnf -y install $platform alsa-ucm-asahi fedora-asahi-remix-scripts tiny-dfr grub2-efi-aa64-modules \
     uboot-images-armv8 asahi-fwupdate dracut-asahi update-m1n1 aajohan-comfortaa-fonts
-  # Pin what is installed to each Asahi repository's newest build (Mesa, U-Boot, kernel tools)
+  # Pin what is installed to each Asahi repository's newest build (U-Boot, kernel tools)
   rpm -qa --qf '%{NAME}\n' | sort -u > /tmp/installed.names
-  for repo in kernel mesa u-boot; do
+  for repo in kernel u-boot; do
     pins=$(dnf -q repoquery --repo="copr:copr.fedorainfracloud.org:group_asahi:$repo" --latest-limit=1 \
         --qf '%{name} %{epoch}:%{version}-%{release}.%{arch}\n' |
       awk 'NR==FNR{have[$1]=1;next} ($1 in have) && $2 !~ /\.src$/ {print $1"-"$2}' /tmp/installed.names -)
