@@ -126,7 +126,11 @@ if [ "$KPAGE" = 16k ]; then
   rm /etc/yum.repos.d/asahi-bootstrap.repo # asahi-repos has the same repository
   # Its Mesa and U-Boot rank above Fedora's newer ones, but dnf ignores that for
   # an installed package, hence the pins below
-  sed -i 's/^priority=.*/priority=5/' /etc/yum.repos.d/group_asahi-mesa.repo /etc/yum.repos.d/group_asahi-u-boot.repo
+  # asahi-repos 1-30 moved its files to /usr/share/dnf5/repos.d and Fedora 45
+  # has no Mesa repository, so edit whichever of them exist
+  find /etc/yum.repos.d /usr/share/dnf5/repos.d \
+    \( -name group_asahi-mesa.repo -o -name group_asahi-u-boot.repo \) \
+    -exec sed -i 's/^priority=.*/priority=5/' {} +
   remove_stock_kernel
   platform="asahi-platform-metapackage asahi-platform-metapackage-core asahi-platform-metapackage-mesa asahi-platform-metapackage-audio"
   [ "$desktop" != kde ] || platform="$platform asahi-platform-metapackage-plasma"
