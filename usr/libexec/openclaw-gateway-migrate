@@ -1,0 +1,15 @@
+#!/bin/sh
+# Before openclaw-gateway.service: a new OpenClaw release can need its state
+# migrated, and the gateway otherwise exits 78 and stays down. Nothing in
+# OpenClaw runs Doctor on a bootc image, so run it once per version. "external"
+# keeps Doctor from restarting the unit this runs in.
+state=${OPENCLAW_STATE_DIR:-$HOME/.openclaw}
+stamp=${XDG_STATE_HOME:-$HOME/.local/state}/agenticlinux/openclaw-doctor-version
+version=$(sed -n '/^  "version":/{s/.*: "\(.*\)".*/\1/p;q}' \
+  /usr/lib/node_modules/openclaw/package.json 2>/dev/null)
+
+[ -n "$version" ] && [ -d "$state" ] || exit 0
+[ "$(cat "$stamp" 2>/dev/null)" = "$version" ] && exit 0
+OPENCLAW_SERVICE_REPAIR_POLICY=external \
+  /usr/bin/openclaw doctor --fix --non-interactive || exit
+mkdir -p "$(dirname "$stamp")" && echo "$version" >"$stamp"

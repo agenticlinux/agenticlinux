@@ -145,6 +145,11 @@ done
 # Kata Containers is Fedora's package; CentOS has none
 if rpm -q kata-containers >/dev/null; then retry as_test "kata-runtime --version"; fi
 
+# The OpenClaw gateway's pre-start migration: shipped, and a no-op without state
+test -f /usr/lib/systemd/user/openclaw-gateway.service.d/10-agenticlinux-migrate.conf
+as_test /usr/libexec/openclaw-gateway-migrate
+test ! -e /home/test/.local/state/agenticlinux
+
 # The desktop apps: launcher, menu entry, and every shared library of the
 # binary resolved; without a display that is as far as a check can go.
 while read -r bin entry exe; do

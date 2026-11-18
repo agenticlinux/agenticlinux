@@ -250,6 +250,13 @@ The default tags (`kde`, `gnome`, ...) moved from Fedora 44 to Fedora 45, so a
 machine that followed one is taken to Fedora 45 by its next `bootc upgrade`.
 To stay on Fedora 44, switch to its `fedora44-` tag first.
 
+OpenClaw's state in `~/.openclaw` can need migrating by a new release. Before
+its gateway starts, the image runs `openclaw doctor --fix` once per OpenClaw
+version, after backing up each database beside itself. A rollback leaves the
+migrated state, which the older release refuses: stop the gateway, put each
+database's newest `*.pre-startup-migration-*.bak` back in its place, and delete
+`~/.local/state/agenticlinux/openclaw-doctor-version`.
+
 A failed update rolls back by itself. The new image gets three boot attempts,
 and if it does not come up healthy the machine returns to the previous image and
 does not retry the bad one; see [bootguard](bootguard/README.md).
