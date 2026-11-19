@@ -142,6 +142,10 @@ for c in "sbx version" "llmman --version" "herdr --version" "opencode --version"
          "nerdctl --version" "kind version" "kubectl version --client" "helm version" "clusterctl version"; do
   retry as_test "$c"
 done
+# Hermes and NanoClaw install per user: only the installers ship, and Hermes's
+# Node needs libatomic
+test -x /usr/bin/hermes-install -a -x /usr/bin/nanoclaw-install
+ldconfig -p | grep -q 'libatomic\.so\.1'
 # Kata Containers is Fedora's package; CentOS has none
 if rpm -q kata-containers >/dev/null; then retry as_test "kata-runtime --version"; fi
 

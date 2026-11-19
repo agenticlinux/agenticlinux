@@ -56,6 +56,7 @@ vim-enhanced  # the full vim (the vim command), not vim-minimal's vi
 tldr
 
 # --- Development ------------------------------------------------------------
+libatomic  # Hermes's Node runtime links it
 git
 gh  # GitHub CLI: gh auth login, gh pr create; a git credential helper too
 mise

@@ -1,0 +1,5 @@
+#!/bin/bash
+# Installs Hermes Agent (Nous Research) into the user's home, where it can
+# update itself: its runtime lives in ~/.hermes, which /usr cannot hold.
+set -euo pipefail
+curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- "$@"

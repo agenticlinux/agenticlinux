@@ -124,11 +124,27 @@ Otherwise sign in once per agent:
 - `opencode`: `/connect` in its TUI.
 - `openclaw`: `openclaw onboard`.
 - `goose`: `goose configure`.
+- `hermes`: `hermes-install`, then `hermes setup`.
+- `nanoclaw`: `nanoclaw-install`.
 - `llmman`: export the provider's key (`OPENROUTER_API_KEY`, ...) before
   `llmman launch --provider ...`; `llmman providers` shows which are set.
 
 The ChatGPT app asks you to sign in when it first starts. Credentials stay in
 your home directory, which [updates](#updates) leave alone.
+
+## Agents installed per user
+
+Two more agents are not in the image, because they keep their runtime and
+state in your home directory and update themselves there. Install them once,
+as your user:
+
+- **Hermes Agent** ([Nous Research](https://hermes-agent.nousresearch.com)):
+  `hermes-install` runs its installer, which puts it in `~/.hermes` and
+  `hermes` in `~/.local/bin`. `hermes update` updates it.
+- **NanoClaw** ([nanocoai](https://github.com/nanocoai/nanoclaw)):
+  `nanoclaw-install` clones it to `~/nanoclaw` (`NANOCLAW_DIR` changes
+  that) and runs `nanoclaw.sh`. Its agents run in Docker containers, so
+  [Docker](#docker) has to be working first.
 
 ## Desktop apps
 

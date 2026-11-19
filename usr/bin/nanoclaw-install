@@ -1,0 +1,8 @@
+#!/bin/bash
+# Clones NanoClaw into ~/nanoclaw and runs its installer. NanoClaw is a
+# checkout you own and customise, so it lives in the user's home.
+set -euo pipefail
+dir=${NANOCLAW_DIR:-$HOME/nanoclaw}
+[ -d "$dir/.git" ] || git clone https://github.com/nanocoai/nanoclaw.git "$dir"
+cd "$dir"
+exec bash nanoclaw.sh "$@"
