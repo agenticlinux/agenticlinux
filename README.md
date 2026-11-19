@@ -213,8 +213,8 @@ sudo bootc switch docker.io/ericcurtin044/agenticlinux:kde
 The ISOs are named for the variant (`agenticlinux-kde-x86_64.iso`), and the
 default desktops' are Fedora 45. The Fedora 44 ones are
 `agenticlinux-fedora44-kde-x86_64.iso` and so on. The 16k and 64k ones
-(`agenticlinux-16k-kde-aarch64.iso`) are in the releases `16k-<version>` and
-`64k-<version>`, not the latest.
+(`agenticlinux-16k-kde-aarch64.iso`) are in the latest release too, added
+when their separate workflows finish.
 
 The root filesystem (which holds `/var`, `/home` and `/root`) defaults to xfs
 for both `bootc install` and the ISO.
