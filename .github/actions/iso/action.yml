@@ -1,7 +1,7 @@
 name: Installer ISO
 description: >-
   Build the ISO of the job's $IMAGE:$VARIANT-<version> with iso/build.sh and
-  upload it to the release <page size>-<version>, created if missing.
+  upload it, with its sha256, to the latest release (published by Build).
 inputs:
   name:
     description: The ISO's name, agenticlinux-<name>-<arch>.iso, such as 16k-kde
@@ -19,20 +19,19 @@ runs:
         VERSION: ${{ inputs.version }}
       run: |
         iso="agenticlinux-$NAME-$(uname -m).iso"
-        release="${NAME%%-*}-$VERSION"
         for i in $(seq 12); do docker pull "fedora:$FEDORA" && break || sleep 20; done
         docker run --rm -v "$PWD:/w" -w /w -e REPO_URL "fedora:$FEDORA" \
           iso/build.sh "$IMAGE:$VARIANT-$VERSION" "$VARIANT" "/w/$iso"
         sha256sum "$iso" > "$iso.sha256"
-        # The variants share the release: create it only if missing. Patient,
-        # GitHub's outages answer 403 for half an hour; the last error is the
-        # annotation retry.yml reads.
+        # Upload to the latest release, and again if Build published a newer one
+        # meanwhile. Patient: GitHub's outages answer 403 for half an hour. The
+        # last error is the annotation retry.yml reads.
+        latest() { gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>&1; }
         n=12
         for i in $(seq $n); do
-          out=$({ gh release view "$release" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 ||
-            gh release create "$release" --repo "$GITHUB_REPOSITORY" --latest=false \
-              --target "$GITHUB_SHA" --title "$release" --notes "Network installer ISOs."; } 2>&1 &&
-            gh release upload "$release" --repo "$GITHUB_REPOSITORY" --clobber "$iso" "$iso.sha256" 2>&1) && break
+          out=$(tag=$(latest) || { echo "$tag"; exit 1; }
+            gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "$iso" "$iso.sha256" 2>&1 &&
+            [ "$(latest)" = "$tag" ]) && break
           echo "$out"
           [ "$i" -lt "$n" ] || { echo "::error::$(tail -n1 <<<"$out")"; exit 1; }
           sleep 60
