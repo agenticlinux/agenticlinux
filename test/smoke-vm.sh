@@ -11,7 +11,7 @@ finish() {
   # Which runtime the daemon picked and why a load failed
   tail -n 40 "$llmman_data/serve.log" 2>/dev/null || true
   systemctl --failed --no-pager || true
-  journalctl -u docker -u docker.socket -u containerd --no-pager -n 40 || true
+  journalctl -u docker -u docker.socket -u containerd -u firewalld --no-pager -n 60 || true
   echo SMOKE FAIL
 }
 trap 'finish $?' EXIT

@@ -17,6 +17,8 @@
 # ISOs and the scratch files iso/build.sh leaves when it fails
 /*.iso
 /*.iso.sha256
+/agenticlinux-*.qcow2
+/agenticlinux-*.qcow2.sha256
 /agenticlinux.ks
 /updates/
 /images/

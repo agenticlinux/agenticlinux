@@ -1,0 +1,36 @@
+name: Cloud-init qcow2
+description: >-
+  Build agenticlinux-<name>-<arch>.qcow2 and its sha256 for the job's
+  $IMAGE:$VARIANT-<version> with cloud/build.sh.
+inputs:
+  version:
+    description: The image's version
+    required: true
+  name:
+    description: The file's name; the variant without the default Fedora release, as the ISO's, if empty
+    default: ""
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        NAME: ${{ inputs.name }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        # As in Build: refresh the lists first, a stale one has 404'd
+        for i in 1 2 3; do
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends qemu-utils && break
+          [ "$i" -lt 3 ] || exit 1
+          sleep 30
+        done
+        # The 16k and 64k jobs still hold their image
+        docker system prune -af
+        rm -f "$RUNNER_TEMP/image.tar"
+        case "$VARIANT" in
+          centos-*) bootc=quay.io/centos-bootc/centos-bootc:stream$CENTOS ;;
+          "fedora${FEDORA_PREVIOUS}-"*) bootc=quay.io/fedora/fedora-bootc:$FEDORA_PREVIOUS ;;
+          *) bootc=quay.io/fedora/fedora-bootc:$FEDORA ;;
+        esac
+        qcow2="agenticlinux-${NAME:-${VARIANT#"fedora$FEDORA-"}}-$(uname -m).qcow2"
+        cloud/build.sh "$IMAGE:$VARIANT-$VERSION" "$bootc" "$qcow2"
+        sha256sum "$qcow2" > "$qcow2.sha256"

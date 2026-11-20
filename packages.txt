@@ -28,6 +28,7 @@ nvidia-container-toolkit
 xdg-desktop-portal
 xdg-desktop-portal-gtk
 wl-clipboard
+waypipe  # vmmbox carries a VM's GUI apps to the host's desktop with it
 ddcutil
 gnome-keyring
 libsecret
@@ -113,6 +114,7 @@ krdp
 
 # --- Hardware / system services ---------------------------------------------
 NetworkManager
+openssh-server  # the cloud-init qcow2 (cloud/) is reached over SSH, also once it is this image
 wireless-regdb
 bluez
 bolt

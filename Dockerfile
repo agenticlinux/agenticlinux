@@ -84,6 +84,9 @@ RUN --mount=type=bind,from=kernel,target=/run/kernel VARIANT="$VARIANT" REPO_URL
 COPY --from=bootguard /src/target/release/agenticlinux-bootguard /usr/bin/agenticlinux-bootguard
 COPY --from=nvkectl /src/cli/bin/nvkectl /usr/bin/nvkectl
 COPY bootguard/dist /
+# vmmbox's mount point for a macOS home; the root is read-only, so it is a
+# symlink into /var, as /home is
+RUN ln -s var/Users /Users
 RUN systemctl enable agenticlinux-bootguard-boot.service \
                      agenticlinux-bootguard-check.service \
                      agenticlinux-bootguard-arm.service

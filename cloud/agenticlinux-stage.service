@@ -1,0 +1,15 @@
+[Unit]
+Description=Stage the AgenticLinux image, which replaces this system at the next boot
+Wants=network-online.target
+After=network-online.target
+StartLimitIntervalSec=1h
+StartLimitBurst=10
+
+# Started by cloud-final (cloud-final-stage.conf), not at boot: vmmbox's package
+# install waits for the sysroot lock the pull holds. systemd must run bootc
+# itself: from a shell SELinux refuses the labels of what it pulls.
+[Service]
+Type=simple
+ExecStart=/usr/bin/bootc switch @IMAGE@
+Restart=on-failure
+RestartSec=60
