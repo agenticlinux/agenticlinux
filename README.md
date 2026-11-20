@@ -216,6 +216,21 @@ default desktops' are Fedora 45. The Fedora 44 ones are
 (`agenticlinux-16k-kde-aarch64.iso`) are in the latest release too, added
 when their separate workflows finish.
 
+Each ISO has a small cloud-init qcow2 of the same name
+(`agenticlinux-kde-x86_64.qcow2`), if its build succeeded, for a VM host that
+seeds cloud-init. With [vmmbox](https://github.com/ericcurtin/vmmbox) (newer than
+0.1.41) the desktop is the version, `base` by default:
+
+```sh
+vmmbox run agenticlinux bash          # or agenticlinux:kde, agenticlinux:fedora44-gnome
+```
+
+The qcow2 boots as a cloud image within a minute. A full disk would be 8-10 GB,
+so it stages the matching image from Docker Hub in the background instead, a few
+minutes (`journalctl -u agenticlinux-stage`). Once `bootc status` shows it staged,
+`vmmbox stop agenticlinux` and run it again to boot AgenticLinux. `cloud/` builds
+it; `/Users` is a symlink into `/var` for vmmbox's macOS home mount.
+
 The root filesystem (which holds `/var`, `/home` and `/root`) defaults to xfs
 for both `bootc install` and the ISO.
 

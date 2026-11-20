@@ -1,7 +1,8 @@
 name: Installer ISO
 description: >-
   Build the ISO of the job's $IMAGE:$VARIANT-<version> with iso/build.sh and
-  upload it, with its sha256, to the latest release (published by Build).
+  upload it, with its sha256, to the latest release (published by Build), and
+  the cloud-init qcow2 of the same image if that builds.
 inputs:
   name:
     description: The ISO's name, agenticlinux-<name>-<arch>.iso, such as 16k-kde
@@ -12,6 +13,12 @@ inputs:
 runs:
   using: composite
   steps:
+    # Not fatal while it is new: the ISO is published without it if it fails
+    - uses: ./.github/actions/qcow2
+      continue-on-error: true
+      with:
+        name: ${{ inputs.name }}
+        version: ${{ inputs.version }}
     - shell: bash
       env:
         GH_TOKEN: ${{ github.token }}
@@ -23,6 +30,10 @@ runs:
         docker run --rm -v "$PWD:/w" -w /w -e REPO_URL "fedora:$FEDORA" \
           iso/build.sh "$IMAGE:$VARIANT-$VERSION" "$VARIANT" "/w/$iso"
         sha256sum "$iso" > "$iso.sha256"
+        files=("$iso" "$iso.sha256")
+        for f in "${iso%.iso}.qcow2" "${iso%.iso}.qcow2.sha256"; do
+          if [ -e "$f" ]; then files+=("$f"); fi
+        done
         # Upload to the latest release, and again if Build published a newer one
         # meanwhile. Patient: GitHub's outages answer 403 for half an hour. The
         # last error is the annotation retry.yml reads.
@@ -30,7 +41,7 @@ runs:
         n=12
         for i in $(seq $n); do
           out=$(tag=$(latest) || { echo "$tag"; exit 1; }
-            gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "$iso" "$iso.sha256" 2>&1 &&
+            gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber "${files[@]}" 2>&1 &&
             [ "$(latest)" = "$tag" ]) && break
           echo "$out"
           [ "$i" -lt "$n" ] || { echo "::error::$(tail -n1 <<<"$out")"; exit 1; }
