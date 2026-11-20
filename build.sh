@@ -48,13 +48,15 @@ case "$desktop" in centos-*) want=centos ;; *) want=fedora ;; esac
 # /root is a dangling symlink to /var/roothome during the build
 export HOME=/tmp
 
-# Run a command up to 12 times, 20 s apart
+# Run a command up to 12 times, waiting 20 s, 40 s, then a minute between tries:
+# ten minutes in all. Four minutes of 20 s tries was not enough for a GitHub
+# outage that failed two builds (git ls-remote of NVIDIA/OpenShell).
 retry() {
   local i
   for i in $(seq 12); do
     "$@" && return
     echo "${*:1:2} failed ($i/12)" >&2
-    [ "$i" -lt 12 ] && sleep 20
+    [ "$i" -lt 12 ] && sleep $((i < 3 ? i * 20 : 60))
   done
   return 1
 }
