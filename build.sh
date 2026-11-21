@@ -709,6 +709,34 @@ for f in /usr/share/plasma/look-and-feel/org.fedoraproject.fedora*.desktop/metad
          -e 's/"Description": "[^"]*"/"Description": "AgenticLinux theme"/' "$f"
 done
 
+# --- Never sleep ------------------------------------------------------------
+# Agents run around the clock. The /usr/lib/systemd drop-ins refuse to sleep;
+# here the desktops' own idle, lid and power-button settings stop asking to.
+#
+# PowerDevil: LidAction=64 (screen off), as 0 unloads its button handler. Critical
+# battery is 8 (PowerButtonAction::Shutdown): 0 only notifies, sleep is refused.
+install -d /etc/xdg
+{
+  printf '[BatteryManagement]\nBatteryCriticalAction=8\n\n'
+  for profile in AC Battery LowBattery; do
+    printf '[%s][SuspendAndShutdown]\nAutoSuspendAction=0\nLidAction=64\n\n' "$profile"
+  done
+} > /etc/xdg/powerdevilrc
+
+# GNOME's (and Budgie's) settings daemon. 'interactive' for the power button,
+# as the upstream default suspends, which would now do nothing.
+if [ -e "$schemas/org.gnome.settings-daemon.plugins.power.gschema.xml" ]; then
+  cat > "$schemas/zz-agenticlinux-never-sleep.gschema.override" <<EOF
+[org.gnome.settings-daemon.plugins.power]
+sleep-inactive-ac-type='nothing'
+sleep-inactive-ac-timeout=0
+sleep-inactive-battery-type='nothing'
+sleep-inactive-battery-timeout=0
+power-button-action='interactive'
+EOF
+  glib-compile-schemas "$schemas"
+fi
+
 cat > /usr/lib/os-release <<EOF
 NAME="AgenticLinux"
 VERSION="${RELEASE} (${DESKTOP})"
@@ -766,6 +794,10 @@ fi
 
 # The second empties /tmp (it is /var/tmp) on shutdown, as the tmpfs it replaced
 systemctl enable docker.service agenticlinux-clean-var-tmp.service
+
+# Masked as well, in case a drop-in is overridden
+systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target \
+               suspend-then-hibernate.target
 
 # The base images keep file capabilities (newuidmap's, which rootless podman
 # needs) in ostree's own metadata, which BuildKit does not apply, so the

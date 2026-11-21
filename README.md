@@ -198,6 +198,36 @@ Two daemons, with separate images and containers:
   too, at the versions NVKE pins; see its
   [installation guide](https://docs.nvidia.com/nvke/documentation/install-nvke/plan-your-installation).
 
+## Never sleeps
+
+The machine never suspends, hibernates or sleeps, so agents keep running around
+the clock: closing the lid or sitting idle does nothing (the screen may still
+turn off). A critically low battery shuts the machine down instead.
+
+- Drop-ins in `/usr/lib/systemd/logind.conf.d` and `sleep.conf.d`
+  (`10-agenticlinux-never-sleep.conf`) ignore the lid and idle action and
+  refuse suspend and hibernation.
+- `sleep`, `suspend`, `hibernate`, `hybrid-sleep` and `suspend-then-hibernate`
+  `.target` are masked.
+- KDE and GNOME (and Budgie) default to no idle sleep.
+
+To undo it, do both systemd steps, then the desktop settings, and reboot:
+
+```sh
+# 1. replace the drop-ins: a file of the same name in /etc wins
+sudo mkdir -p /etc/systemd/logind.conf.d /etc/systemd/sleep.conf.d
+sudo ln -s /dev/null /etc/systemd/logind.conf.d/10-agenticlinux-never-sleep.conf
+sudo ln -s /dev/null /etc/systemd/sleep.conf.d/10-agenticlinux-never-sleep.conf
+# 2. unmask the targets
+sudo systemctl unmask sleep.target suspend.target hibernate.target \
+                      hybrid-sleep.target suspend-then-hibernate.target
+```
+
+Then in KDE's System Settings, Energy Saving, set the suspend and lid actions
+(per power state, and "At critical level" under Advanced Power Settings). GNOME
+and Budgie use Settings, Power, Automatic Suspend: set an action and a nonzero
+timeout, which the image sets to nothing and 0.
+
 ## Install
 
 The ISO is a network installer preset to pull the matching image from Docker
