@@ -50,6 +50,7 @@ man-db
 unzip
 whois
 socat
+nmap  # network scanner and port discovery
 plocate
 btop
 nvtop
