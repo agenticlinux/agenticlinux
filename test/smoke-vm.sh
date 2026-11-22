@@ -229,7 +229,7 @@ if [ "$inference" != 0 ]; then
       # "... api.github.com/repos/ggml-org/llama.cpp/releases/tags/b11429 returned 403"
       tag=
       [[ $(<"$pull_log") =~ releases/tags/(b[0-9]+) ]] && tag=${BASH_REMATCH[1]}
-      [ -n "$tag" ] && seed_llama_cpp "$tag" || sleep 30
+      if [ -z "$tag" ] || ! seed_llama_cpp "$tag"; then sleep 30; fi
     done
   fi
   # The pull is a chain of registry requests and has timed out on one
