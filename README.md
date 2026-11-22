@@ -18,7 +18,8 @@ any agent to any provider, [Docker Engine](https://docs.docker.com/engine/)
 [OpenShell](https://github.com/NVIDIA/OpenShell) and
 [Kata Containers](https://katacontainers.io) to run agents in isolation,
 [QEMU](https://www.qemu.org) with KVM for full virtual machines,
-[nvkectl](https://docs.nvidia.com/nvke/) to run GPU Kubernetes clusters,
+[nvkectl](https://docs.nvidia.com/nvke/) to run GPU Kubernetes clusters (and
+`agenticlinux-k8s` for a single-node one on your own machine),
 GPU runtimes for Vulkan, ROCm and NVIDIA/CUDA, and a full developer
 toolset.
 
@@ -111,8 +112,9 @@ Spark and other Arm servers (see [64k kernels](#64k-kernels)):
 
 The variants carry the same packages on both distributions, so the list is
 what CentOS Stream 10, EPEL 10 and RPM Fusion have: GNOME and KDE Plasma are
-the desktops that exist there, and Kata Containers is on Fedora only. CentOS
-Stream's kernel tracks the next RHEL 10 minor release.
+the desktops that exist there, and Kata Containers and the Kubernetes node
+components are on Fedora only. CentOS Stream's kernel tracks the next RHEL 10
+minor release.
 
 ## Signing in to the agents
 
@@ -197,6 +199,50 @@ Two daemons, with separate images and containers:
   drives (`nerdctl`, `kind`, `helm`, `kubectl`, `clusterctl`) are installed
   too, at the versions NVKE pins; see its
   [installation guide](https://docs.nvidia.com/nvke/documentation/install-nvke/plan-your-installation).
+- **Kubernetes** (Fedora variants) is a single-node GPU cluster on your own
+  machine: Fedora's Kubernetes 1.36 node components (the line NVKE pins),
+  `kubelet`, `kubeadm` and `crictl`, beside `kubectl` and `helm`. The kubelet is
+  off until you create the cluster:
+
+  ```sh
+  sudo agenticlinux-k8s up      # kubeadm, flannel, then the NVIDIA GPU Operator
+  agenticlinux-k8s status       # the node, the gpu-operator pods, allocatable GPUs
+  sudo agenticlinux-k8s down    # kubeadm reset and clean-up; asks first, --yes skips
+  ```
+
+  `up` needs the NVIDIA driver loaded (`nvidia-smi` works), refuses a host that
+  already runs kubeadm, and takes a few minutes. It enables containerd's CRI (in
+  `/etc/containerd/config.toml`, only if that is still the packaged default),
+  installs flannel and GPU Operator `v26.7.3` (NVKE's version, without the driver
+  and toolkit, which the image has), and lets the node run workloads. The
+  kubeconfig goes to `~/.kube/config`, or `~/.kube/agenticlinux-k8s.conf` if you
+  have one already; then the `kubectl` commands below need
+  `KUBECONFIG=~/.kube/agenticlinux-k8s.conf`. Once `status` shows a GPU
+  allocatable, ask for one:
+
+  ```sh
+  kubectl apply -f - <<EOF
+  apiVersion: v1
+  kind: Pod
+  metadata:
+    name: gpu-test
+  spec:
+    restartPolicy: Never
+    containers:
+    - name: cuda
+      image: nvidia/cuda:12.9.2-base-ubuntu24.04
+      command: ["nvidia-smi"]
+      resources:
+        limits:
+          nvidia.com/gpu: 1
+  EOF
+  kubectl logs gpu-test
+  kubectl delete pod gpu-test
+  ```
+
+  This is for one machine; NVKE (`nvkectl`) provisions multi-node clusters and is
+  not replaced by it. CentOS Stream variants have neither the Kubernetes packages
+  nor `agenticlinux-k8s`.
 
 ## Never sleeps
 

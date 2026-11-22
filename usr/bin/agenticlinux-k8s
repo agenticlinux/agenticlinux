@@ -1,0 +1,417 @@
+#!/bin/bash
+# A single-node GPU Kubernetes cluster on this machine: kubeadm (control plane as
+# static pods), flannel, and the NVIDIA GPU Operator on top of the host's own
+# driver and container toolkit. Same Kubernetes line and GPU stack as NVKE
+# (nvkectl), which provisions multi-node clusters and is left alone.
+# Two more subcommands, not in help, print what 'up' generates: kubeadm-config
+# and helm-template.
+set -euo pipefail
+
+GPU_OPERATOR_CHART=v26.7.3  # the version NVKE pins
+GPU_OPERATOR_REPO=https://helm.ngc.nvidia.com/nvidia
+
+# flannel is pinned by release and by the SHA-256 of its kube-flannel.yml (the
+# digest GitHub shows for the asset); to move, change both lines.
+FLANNEL_VERSION=v0.28.11
+FLANNEL_SHA256=bc9e5462c8d09ee79d5bf29cefd9e31a6da109fbdebc358cca957d4ea0328133
+
+# Built into flannel's manifest (net-conf.json): changing it means editing that too
+POD_CIDR=10.244.0.0/16
+
+CRI_SOCKET=unix:///run/containerd/containerd.sock  # containerd.io's, shared with Docker
+CONTAINERD_CONFIG=/etc/containerd/config.toml
+ADMIN_CONF=/etc/kubernetes/admin.conf
+LOCK_FILE=/run/agenticlinux-k8s.lock
+MODULES_CONF=/etc/modules-load.d/agenticlinux-k8s.conf
+SYSCTL_CONF=/etc/sysctl.d/90-agenticlinux-k8s.conf
+
+# What 'up' recorded, so 'down' never has to guess. CREATED_FILE exists only once
+# kubeadm init is about to run; KUBECONFIG_RECORD is 'sha256sum' of the kubeconfig
+# copy 'up' wrote.
+STATE_DIR=/var/lib/agenticlinux-k8s
+CREATED_FILE=$STATE_DIR/created
+KUBECONFIG_RECORD=$STATE_DIR/kubeconfig.sha256
+
+# Checked against 'helm show values nvidia/gpu-operator --version v26.7.3'
+gpu_operator_args=(
+  --repo "$GPU_OPERATOR_REPO" --version "$GPU_OPERATOR_CHART" --namespace gpu-operator
+  # The image's own driver and toolkit are used: their containers would install a second set
+  --set driver.enabled=false
+  --set toolkit.enabled=false
+  # GPUs reach pods as CDI devices, injected by containerd with plain runc. The
+  # operator's own pods ask for RuntimeClass "nvidia", hence that handler below.
+  --set cdi.enabled=true
+)
+
+log() { echo "agenticlinux-k8s: $*"; }
+warn() { log "warning: $*" >&2; }
+die() { log "$*" >&2; exit 1; }
+step() { printf '\n==> %s\n' "$*"; }
+usage_error() { usage >&2; exit 2; }
+
+usage() {
+  cat <<EOF
+Usage: agenticlinux-k8s up | status | down [--yes] | help
+
+  up      create a single-node GPU Kubernetes cluster (kubeadm, flannel, GPU
+          Operator $GPU_OPERATOR_CHART); needs root, runs sudo itself
+  status  show the node, the gpu-operator pods and the node's GPUs
+  down    delete the cluster and what 'up' set up, after asking (--yes skips)
+EOF
+}
+
+# Re-run as root, then take the lock so that up and down cannot overlap
+root_lock() {
+  if [ "$(id -u)" -ne 0 ]; then
+    command -v sudo >/dev/null || die "this needs root: run it as root"
+    exec sudo -- "$(readlink -f "${BASH_SOURCE[0]}")" "$@"
+  fi
+  exec 9>"$LOCK_FILE"
+  flock -n 9 || die "another agenticlinux-k8s up or down is running"
+}
+
+sum() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1; }
+
+# wait_for SECONDS COMMAND...: poll until COMMAND succeeds
+wait_for() {
+  local deadline=$((SECONDS + $1))
+  shift
+  until "$@" >/dev/null 2>&1; do
+    [ "$SECONDS" -lt "$deadline" ] || return 1
+    sleep 5
+  done
+}
+
+# The version is spelled out because kubeadm would otherwise ask dl.k8s.io for
+# the newest stable release. failSwapOn is off for Fedora's zram swap;
+# cgroupDriver matches containerd's SystemdCgroup.
+kubeadm_config() {
+  cat <<EOF
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+nodeRegistration:
+  criSocket: $CRI_SOCKET
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+clusterName: agenticlinux
+kubernetesVersion: $(kubeadm version -o short)
+networking:
+  podSubnet: $POD_CIDR
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: systemd
+failSwapOn: false
+EOF
+}
+
+# What the kubelet needs of containerd.io, whose packaged config disables the
+# CRI plugin. bin_dirs: Fedora's CNI plugins are in /usr/libexec/cni and
+# flannel installs its own into /opt/cni/bin. nvidia is a non-default runtime
+# handler for the operator's pods; everything else runs runc and gets GPUs via CDI.
+containerd_stanza() {
+  local version=$1 cri="plugins.'io.containerd.cri.v1.runtime'"
+  cat <<EOF
+version = $version
+
+[$cri.cni]
+  bin_dirs = ['/usr/libexec/cni', '/opt/cni/bin']
+
+[$cri.containerd.runtimes.runc]
+  runtime_type = 'io.containerd.runc.v2'
+
+[$cri.containerd.runtimes.runc.options]
+  SystemdCgroup = true
+
+[$cri.containerd.runtimes.nvidia]
+  runtime_type = 'io.containerd.runc.v2'
+
+[$cri.containerd.runtimes.nvidia.options]
+  BinaryName = '$(command -v nvidia-container-runtime)'
+  SystemdCgroup = true
+EOF
+}
+
+# Checked on 'containerd config dump', the merged result whatever the file's version
+containerd_configured() {
+  local dump
+  dump=$(containerd config dump 2>/dev/null) || return 1
+  ! grep -q -E "^disabled_plugins = .*cri" <<<"$dump" || return 1
+  awk '/^ *\[/ {section = $0} section ~ /runtimes\.runc\.options\]/ && /SystemdCgroup = true/ {ok = 1} END {exit !ok}' <<<"$dump" || return 1
+  grep -q "runtimes\.nvidia\]" <<<"$dump" || return 1
+  grep -q "^ *cdi_spec_dirs = \['" <<<"$dump" || return 1
+  grep -q "^ *bin_dirs = .*'/usr/libexec/cni'" <<<"$dump" || return 1
+  grep -q "^ *bin_dirs = .*'/opt/cni/bin'" <<<"$dump"
+}
+
+cri_ready() {
+  crictl --runtime-endpoint "$CRI_SOCKET" info >/dev/null 2>&1
+}
+
+configure_containerd() {
+  local version changed=0 bak=$CONTAINERD_CONFIG.agenticlinux-k8s.bak
+  if ! containerd_configured; then
+    version=$(containerd config default | sed -n 's/^version = //p')
+    [ "${version:-0}" -ge 3 ] || die "containerd's configuration is version ${version:-unknown}; this needs containerd 2 (containerd.io)"
+    # Only the packaged default (comments and the line disabling CRI) is replaced
+    if [ -e "$CONTAINERD_CONFIG" ] &&
+       [ "$(grep -v -E '^[[:space:]]*(#|$)' "$CONTAINERD_CONFIG")" != 'disabled_plugins = ["cri"]' ]; then
+      log "$CONTAINERD_CONFIG is customised and lacks what the kubelet needs." >&2
+      echo "Add this to it (containerd configuration version $version), then run 'up' again:" >&2
+      containerd_stanza "$version" >&2
+      exit 1
+    fi
+    [ ! -e "$CONTAINERD_CONFIG" ] || [ -e "$bak" ] || cp -a "$CONTAINERD_CONFIG" "$bak"
+    install -d /etc/containerd
+    containerd_stanza "$version" > "$CONTAINERD_CONFIG"
+    containerd_configured || die "containerd does not take the configuration written to $CONTAINERD_CONFIG"
+    changed=1
+  fi
+  systemctl enable containerd.service >/dev/null 2>&1 || true
+  # A running containerd keeps its old config (and a disabled CRI) until restarted;
+  # that leaves Docker's containers up
+  if [ "$changed" -eq 1 ] || { systemctl is-active --quiet containerd.service && ! cri_ready; }; then
+    systemctl restart containerd.service
+  else
+    systemctl start containerd.service
+  fi
+  wait_for 60 cri_ready || die "containerd's CRI is not ready on $CRI_SOCKET"
+}
+
+# kubeadm needs ip_forward; flannel and kube-proxy need bridged traffic in iptables
+prepare_kernel() {
+  printf 'overlay\nbr_netfilter\n' > "$MODULES_CONF"
+  modprobe -a overlay br_netfilter
+  cat > "$SYSCTL_CONF" <<EOF
+net.ipv4.ip_forward = 1
+net.bridge.bridge-nf-call-iptables = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+EOF
+  sysctl -q -p "$SYSCTL_CONF"
+}
+
+# A kubeconfig copy we may replace: absent, equal to admin.conf, or as 'up' wrote it
+may_replace() {
+  [ ! -e "$1" ] || [ "$(sum "$1")" = "$(sum "$ADMIN_CONF")" ] || unchanged "$1"
+}
+unchanged() { grep -qxF "$(sha256sum "$1")" "$KUBECONFIG_RECORD" 2>/dev/null; }
+
+# Where the user's kubeconfig goes: ~/.kube/config, or a second file beside it
+# when that is the user's own. Never over a file that is not ours.
+kubeconfig_dest() {
+  local dest=$KUBE_HOME/.kube/config
+  if may_replace "$dest"; then
+    echo "$dest"
+    return
+  fi
+  dest=$KUBE_HOME/.kube/agenticlinux-k8s.conf
+  may_replace "$dest" || die "$dest exists but agenticlinux-k8s did not write it: move it away, then run 'up' again"
+  echo "$dest"
+}
+
+preflight() {
+  local tool f missing=()
+  for tool in kubeadm kubelet kubectl helm crictl containerd nvidia-smi nvidia-ctk nvidia-container-runtime \
+              curl sha256sum systemctl flock; do
+    command -v "$tool" >/dev/null || missing+=("$tool")
+  done
+  [ "${#missing[@]}" -eq 0 ] ||
+    die "missing: ${missing[*]} (kubeadm, kubelet and crictl are Fedora packages; CentOS Stream builds lack them)"
+  systemctl cat containerd.service >/dev/null 2>&1 || die "there is no containerd.service (containerd.io)"
+  nvidia-smi -L >/dev/null 2>&1 ||
+    die "the NVIDIA driver is not loaded (nvidia-smi fails): this needs an NVIDIA GPU, and Secure Boot off for the unsigned module"
+  [ "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs ] || die "the kubelet needs cgroup v2"
+  if [ ! -e "$CREATED_FILE" ]; then
+    for f in "$ADMIN_CONF" /etc/kubernetes/kubelet.conf /etc/kubernetes/manifests/*.yaml; do
+      [ ! -e "$f" ] || die "$f exists but not from agenticlinux-k8s: refusing to touch that kubeadm host"
+    done
+  fi
+  [ ! -d "$KUBE_HOME" ] || kubeconfig_dest >/dev/null
+  if systemctl is-active --quiet firewalld.service; then
+    warn "firewalld is running: if pods cannot reach each other or the API server, trust the cni0 and flannel.1 interfaces"
+  fi
+}
+
+# So that containers started by hand (nerdctl, ctr) can ask for nvidia.com/gpu=all;
+# the cluster itself does not need it
+have_cdi_spec() { [[ $(nvidia-ctk cdi list 2>/dev/null) == *nvidia.com/gpu=* ]]; }
+ensure_cdi_spec() {
+  have_cdi_spec && return 0
+  systemctl start nvidia-cdi-refresh.service >/dev/null 2>&1 || true
+  have_cdi_spec && return 0
+  install -d /var/run/cdi
+  nvidia-ctk cdi generate --output=/var/run/cdi/nvidia.yaml >/dev/null 2>&1 ||
+    warn "no CDI specification for the NVIDIA GPUs (nvidia-ctk cdi list)"
+}
+
+init_cluster() {
+  if [ -e "$ADMIN_CONF" ]; then
+    log "the cluster is here already"
+    wait_for 180 kubectl get --raw=/readyz || die "its API server does not answer; 'agenticlinux-k8s down' removes it"
+    return 0
+  fi
+  kubeadm_config > "$TMP/kubeadm-config.yaml"
+  # The ownership marker goes in only now that the host has passed every check
+  install -d -m 755 "$STATE_DIR"
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$CREATED_FILE"
+  # kubeadm only warns about a disabled kubelet, but a reboot needs it enabled
+  systemctl enable kubelet.service >/dev/null 2>&1
+  kubeadm init --config "$TMP/kubeadm-config.yaml" ||
+    die "kubeadm init failed; 'agenticlinux-k8s down' cleans up, then 'up' tries again"
+  wait_for 180 kubectl get --raw=/readyz || die "the API server does not become ready"
+}
+
+install_kubeconfig() {
+  local dest group
+  if [ ! -d "$KUBE_HOME" ]; then
+    warn "no home directory for $KUBE_USER: use KUBECONFIG=$ADMIN_CONF as root"
+    return 0
+  fi
+  dest=$(kubeconfig_dest)
+  [ "$dest" = "$KUBE_HOME/.kube/config" ] ||
+    warn "$KUBE_HOME/.kube/config is yours and stays as it is: export KUBECONFIG=$dest"
+  group=$(id -gn "$KUBE_USER")
+  [ -d "$KUBE_HOME/.kube" ] || install -d -m 700 -o "$KUBE_USER" -g "$group" "$KUBE_HOME/.kube"
+  install -m 600 -o "$KUBE_USER" -g "$group" "$ADMIN_CONF" "$dest"
+  sha256sum "$dest" > "$KUBECONFIG_RECORD"
+  log "kubectl is set up for $KUBE_USER in $dest"
+}
+
+install_cni() {
+  local manifest=$TMP/kube-flannel.yml
+  curl -fsSL --retry 5 --retry-all-errors -o "$manifest" \
+    "https://github.com/flannel-io/flannel/releases/download/$FLANNEL_VERSION/kube-flannel.yml"
+  echo "$FLANNEL_SHA256  $manifest" | sha256sum -c --quiet - ||
+    die "kube-flannel.yml $FLANNEL_VERSION does not match the pinned SHA-256"
+  kubectl apply -f "$manifest"
+  wait_for 300 kubectl -n kube-flannel rollout status daemonset/kube-flannel-ds --timeout=10s ||
+    die "flannel does not become ready (kubectl -n kube-flannel get pods)"
+}
+
+gpus_allocatable() {
+  local n
+  n=$(kubectl get nodes -o jsonpath='{.items[0].status.allocatable.nvidia\.com/gpu}' 2>/dev/null) || return 1
+  [ "${n:-0}" -gt 0 ]
+}
+
+cmd_up() {
+  [ $# -eq 0 ] || usage_error
+  root_lock up
+  TMP=$(mktemp -d)
+  trap 'rm -rf "$TMP"' EXIT
+  export KUBECONFIG=$ADMIN_CONF
+  KUBE_USER=${SUDO_USER:-root}
+  KUBE_HOME=$(getent passwd "$KUBE_USER" | cut -d: -f6 || true)
+
+  step "Checking the machine"
+  preflight
+
+  step "Preparing the kernel and containerd"
+  prepare_kernel
+  configure_containerd
+  ensure_cdi_spec
+
+  step "Creating the cluster"
+  init_cluster
+  install_kubeconfig
+  # A single node runs the workloads too
+  kubectl taint nodes --all node-role.kubernetes.io/control-plane- >/dev/null 2>&1 || true
+
+  step "Installing the pod network (flannel $FLANNEL_VERSION)"
+  install_cni
+  kubectl wait --for=condition=Ready node --all --timeout=300s
+
+  step "Installing the NVIDIA GPU Operator $GPU_OPERATOR_CHART"
+  helm upgrade --install gpu-operator gpu-operator "${gpu_operator_args[@]}" \
+    --create-namespace --wait --timeout 10m
+  log "waiting for the GPU to show up on the node (the operator pulls its images first)"
+  wait_for 600 gpus_allocatable ||
+    die "the cluster is up, but no nvidia.com/gpu is allocatable yet: 'agenticlinux-k8s status' shows the operator's pods"
+
+  step "Ready"
+  cmd_status
+}
+
+recorded_kubeconfig() { sed 's/^[0-9a-f]*  //' "$KUBECONFIG_RECORD" 2>/dev/null || true; }
+
+cmd_status() {
+  [ $# -eq 0 ] || usage_error
+  local conf
+  if [ -z "${KUBECONFIG:-}" ]; then
+    conf=$(recorded_kubeconfig)
+    [ -r "$conf" ] || conf=$ADMIN_CONF
+    [ ! -r "$conf" ] || export KUBECONFIG=$conf
+  fi
+  command -v kubectl >/dev/null || die "kubectl is missing"
+  echo "kubelet: $(systemctl is-active kubelet.service || true)"
+  kubectl get nodes >/dev/null 2>&1 || die "no cluster answers: 'sudo agenticlinux-k8s up' creates one"
+  echo
+  kubectl get nodes -o wide
+  echo
+  kubectl -n gpu-operator get pods
+  echo
+  kubectl get nodes -o custom-columns='NODE:.metadata.name,GPUS:.status.allocatable.nvidia\.com/gpu'
+}
+
+cmd_down() {
+  local assume_yes=0 arg reply f
+  for arg in "$@"; do
+    case "$arg" in
+      -y|--yes) assume_yes=1 ;;
+      *) usage_error ;;
+    esac
+  done
+  root_lock down "$@"
+  if [ ! -e "$CREATED_FILE" ]; then
+    rm -f "$MODULES_CONF" "$SYSCTL_CONF"
+    log "no cluster created by agenticlinux-k8s is here: nothing to remove"
+    return 0
+  fi
+  if [ "$assume_yes" -ne 1 ]; then
+    [ -t 0 ] || die "this deletes the cluster; pass --yes to confirm without a terminal"
+    read -r -p "Delete the cluster, its etcd data and everything running in it? [y/N] " reply
+    case "$reply" in y|Y|yes|YES) ;; *) log "nothing was changed"; exit 1 ;; esac
+  fi
+
+  step "Resetting the cluster"
+  kubeadm reset -f --cri-socket "$CRI_SOCKET" ||
+    die "kubeadm reset failed: fix the problem above, then run 'agenticlinux-k8s down' again (nothing else was removed)"
+  systemctl disable kubelet.service >/dev/null 2>&1 || true
+
+  # kubeadm reset leaves flannel's files and devices (its IPAM state would hand
+  # a new cluster's pods addresses the old one used) and the operator's markers
+  step "Removing the pod network and kubeconfig"
+  rm -f /etc/cni/net.d/10-flannel.conflist /opt/cni/bin/flannel
+  rm -rf /run/flannel /var/lib/cni/flannel /var/lib/cni/networks/cbr0 /run/nvidia/validations
+  ip link delete flannel.1 >/dev/null 2>&1 || true
+  ip link delete cni0 >/dev/null 2>&1 || true
+  f=$(recorded_kubeconfig)
+  if [ -n "$f" ] && [ -e "$f" ]; then
+    if unchanged "$f"; then
+      rm -f "$f"
+      log "removed $f"
+    else
+      log "left $f: it has changed since agenticlinux-k8s wrote it"
+    fi
+  fi
+  rm -f "$MODULES_CONF" "$SYSCTL_CONF"
+  rm -rf "$STATE_DIR"
+  log "done; containerd's configuration, which Docker shares, is kept"
+}
+
+main() {
+  local cmd=${1:-help}
+  [ $# -eq 0 ] || shift
+  case "$cmd" in
+    up) cmd_up "$@" ;;
+    down) cmd_down "$@" ;;
+    status) cmd_status "$@" ;;
+    help|-h|--help) usage ;;
+    kubeadm-config) kubeadm_config ;;
+    helm-template) helm template gpu-operator gpu-operator "${gpu_operator_args[@]}" ;;
+    *) usage_error ;;
+  esac
+}
+
+main "$@"
