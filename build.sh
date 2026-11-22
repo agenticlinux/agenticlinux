@@ -311,6 +311,24 @@ if [ "$DISTRO" = fedora ]; then
     /usr/share/kata-containers/defaults/configuration.toml > /etc/kata-containers/configuration.toml
 fi
 
+# The Kubernetes 1.36 node components (NVKE's line) for agenticlinux-k8s; Fedora
+# only, CentOS Stream has no such packages. Weak dependencies are off: they would
+# add a second kubectl and Fedora's containerd. The control plane runs as static
+# pods, so kubernetes1.36-systemd is not needed. kubelet must stay disabled, as
+# it fails until kubeadm init has run.
+if [ "$DISTRO" = fedora ]; then
+  dnf -y install --setopt=install_weak_deps=False kubernetes1.36 kubernetes1.36-kubeadm cri-tools1.36
+  if systemctl is-enabled --quiet kubelet.service; then
+    echo "kubelet.service is enabled: it must stay off until agenticlinux-k8s up" >&2
+    exit 1
+  fi
+  kubeadm version -o short
+  kubelet --version
+  crictl --version
+else
+  rm /usr/bin/agenticlinux-k8s
+fi
+
 # /usr is read-only on a bootc host, so build the NVIDIA kernel module now.
 # akmod-nvidia's %post only works in rpm-ostree's sandbox; skip it and run
 # akmods ourselves, then drop the build-time packages. akmods exits 0 on a

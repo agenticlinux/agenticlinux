@@ -144,6 +144,18 @@ for c in "sbx version" "llmman --version" "herdr --version" "opencode --version"
 done
 # Kata Containers is Fedora's package; CentOS has none
 if rpm -q kata-containers >/dev/null; then retry as_test "kata-runtime --version"; fi
+# The Kubernetes node components and agenticlinux-k8s are Fedora's too. No
+# cluster is needed: the kubeadm configuration must be one kubeadm accepts, and
+# the kubelet must be off until 'agenticlinux-k8s up' (no systemd in a container).
+if rpm -q kubernetes1.36-kubeadm >/dev/null; then
+  for c in "kubeadm version -o short" "kubelet --version" "crictl --version" "agenticlinux-k8s help"; do
+    retry as_test "$c"
+  done
+  as_test "agenticlinux-k8s kubeadm-config >/tmp/k8s-test.yaml && kubeadm config validate --config /tmp/k8s-test.yaml && rm -f /tmp/k8s-test.yaml"
+  if ! systemd-detect-virt -cq; then test "$(systemctl is-enabled kubelet.service || true)" = disabled; fi
+else
+  test ! -e /usr/bin/agenticlinux-k8s
+fi
 
 # The OpenClaw gateway's pre-start migration: shipped, and a no-op without state
 test -f /usr/lib/systemd/user/openclaw-gateway.service.d/10-agenticlinux-migrate.conf
