@@ -375,8 +375,8 @@ The `16k-` variants are named for the kernel's page size, not the hardware, so o
 16 KiB machines can follow. Each is the variant without the
 prefix with its kernel swapped for `kernel-16k` and, for Apple Silicon, the
 [Asahi project](https://asahilinux.org/fedora/)'s platform packages (firmware,
-m1n1 and U-Boot updaters, Mesa, audio). The branding is AgenticLinux's, as for every
-variant. aarch64 only.
+m1n1 and U-Boot updaters, `asahi-bless` to pick the boot volume, Mesa, audio). The
+branding is AgenticLinux's, as for every variant. aarch64 only.
 
 There is no installer for Apple Silicon: the Asahi installer sets up m1n1 and U-Boot, so
 install an atomic Fedora Asahi Remix first

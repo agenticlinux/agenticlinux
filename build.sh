@@ -132,7 +132,7 @@ if [ "$KPAGE" = 16k ]; then
   platform="asahi-platform-metapackage asahi-platform-metapackage-core asahi-platform-metapackage-mesa asahi-platform-metapackage-audio"
   [ "$desktop" != kde ] || platform="$platform asahi-platform-metapackage-plasma"
   # shellcheck disable=SC2086
-  dnf -y install $platform alsa-ucm-asahi fedora-asahi-remix-scripts tiny-dfr grub2-efi-aa64-modules \
+  dnf -y install $platform alsa-ucm-asahi fedora-asahi-remix-scripts asahi-bless tiny-dfr grub2-efi-aa64-modules \
     uboot-images-armv8 asahi-fwupdate dracut-asahi update-m1n1 aajohan-comfortaa-fonts
   # Pin what is installed to each Asahi repository's newest build (U-Boot, kernel tools)
   rpm -qa --qf '%{NAME}\n' | sort -u > /tmp/installed.names
